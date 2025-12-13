@@ -34,6 +34,7 @@ export default function NewCampaignPage() {
       isCreating={controller.isCreating}
       isLoading={controller.isLoading}
       testContact={controller.testContact}
+      isEnsuringTestContact={controller.isEnsuringTestContact}
       precheckResult={controller.precheckResult}
       isPrechecking={controller.isPrechecking}
       // Template Variables

@@ -106,6 +106,7 @@ interface CampaignWizardViewProps {
   isLoading: boolean;
   // Test Contact
   testContact?: TestContact;
+  isEnsuringTestContact?: boolean;
   // Template Variables - Meta API Structure
   templateVariables: { header: string[], body: string[], buttons?: Record<string, string> };
   setTemplateVariables: (vars: { header: string[], body: string[], buttons?: Record<string, string> }) => void;
@@ -449,6 +450,7 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
   isCreating,
   isLoading,
   testContact,
+  isEnsuringTestContact,
   // Template Variables
   templateVariables,
   setTemplateVariables,
@@ -501,6 +503,18 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
 
   const [templateSearch, setTemplateSearch] = useState('');
   const [hoveredTemplateId, setHoveredTemplateId] = useState<string | null>(null);
+
+  // No modo teste, a única ação permitida é preencher variáveis com valor fixo.
+  // Evita "corrigir contato" (que altera o cadastro) em um fluxo que é só para testar template.
+  useEffect(() => {
+    if (recipientSource !== 'test') return;
+    setQuickEditContactId(null);
+    setQuickEditFocusSafe(null);
+    setBatchFixQueue([]);
+    setBatchFixIndex(0);
+    batchNextRef.current = null;
+    batchCloseReasonRef.current = null;
+  }, [recipientSource]);
 
   // Load custom fields
   useEffect(() => {
@@ -1634,7 +1648,7 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {batchFixCandidates.length > 0 && (
+                      {recipientSource !== 'test' && batchFixCandidates.length > 0 && (
                         <button
                           type="button"
                           onClick={startBatchFix}
@@ -1652,7 +1666,7 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                       <button
                         type="button"
                         onClick={() => handlePrecheck()}
-                        disabled={!!isPrechecking}
+                        disabled={!!isPrechecking || (!!isEnsuringTestContact && recipientSource === 'test')}
                         className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors flex items-center gap-2 ${isPrechecking
                           ? 'bg-zinc-800 border-white/10 text-gray-400'
                           : 'bg-white text-black border-white hover:bg-gray-200'
@@ -1669,6 +1683,10 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                           </>
                         )}
                       </button>
+
+                      {recipientSource === 'test' && isEnsuringTestContact && (
+                        <span className="text-[11px] text-gray-500">Preparando contato de teste…</span>
+                      )}
                     </div>
                   </div>
 
@@ -1724,37 +1742,41 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                                         </button>
                                       </DropdownMenuTrigger>
                                       <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-800 text-white min-w-[220px]">
+                                        {recipientSource !== 'test' && (
+                                          <>
+                                            <DropdownMenuLabel className="text-xs text-gray-500 uppercase tracking-wider px-2 py-1.5">
+                                              Dados do Contato
+                                            </DropdownMenuLabel>
+                                            <DropdownMenuItem
+                                              className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
+                                              onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, '{{nome}}')}
+                                            >
+                                              <Users size={14} className="text-indigo-400" />
+                                              <span>Nome</span>
+                                            </DropdownMenuItem>
+
+                                            <DropdownMenuItem
+                                              className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
+                                              onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, '{{telefone}}')}
+                                            >
+                                              <div className="text-green-400 font-mono text-[10px] w-3.5 text-center">Ph</div>
+                                              <span>Telefone</span>
+                                            </DropdownMenuItem>
+
+                                            <DropdownMenuItem
+                                              className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
+                                              onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, '{{email}}')}
+                                            >
+                                              <div className="text-blue-400 font-mono text-[10px] w-3.5 text-center">@</div>
+                                              <span>Email</span>
+                                            </DropdownMenuItem>
+
+                                            <DropdownMenuSeparator className="bg-white/10 my-1" />
+                                          </>
+                                        )}
+
                                         <DropdownMenuLabel className="text-xs text-gray-500 uppercase tracking-wider px-2 py-1.5">
-                                          Dados do Contato
-                                        </DropdownMenuLabel>
-                                        <DropdownMenuItem
-                                          className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
-                                          onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, '{{nome}}')}
-                                        >
-                                          <Users size={14} className="text-indigo-400" />
-                                          <span>Nome</span>
-                                        </DropdownMenuItem>
-
-                                        <DropdownMenuItem
-                                          className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
-                                          onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, '{{telefone}}')}
-                                        >
-                                          <div className="text-green-400 font-mono text-[10px] w-3.5 text-center">Ph</div>
-                                          <span>Telefone</span>
-                                        </DropdownMenuItem>
-
-                                        <DropdownMenuItem
-                                          className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
-                                          onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, '{{email}}')}
-                                        >
-                                          <div className="text-blue-400 font-mono text-[10px] w-3.5 text-center">@</div>
-                                          <span>Email</span>
-                                        </DropdownMenuItem>
-
-                                        <DropdownMenuSeparator className="bg-white/10 my-1" />
-
-                                        <DropdownMenuLabel className="text-xs text-gray-500 uppercase tracking-wider px-2 py-1.5">
-                                          Valor fixo (teste)
+                                          {recipientSource === 'test' ? 'Preencher manualmente (teste)' : 'Valor fixo (teste)'}
                                         </DropdownMenuLabel>
                                         <DropdownMenuItem
                                           className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
@@ -1766,23 +1788,27 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                                           <span>Texto…</span>
                                         </DropdownMenuItem>
 
-                                        <DropdownMenuSeparator className="bg-white/10 my-1" />
-
-                                        {customFields.length > 0 && (
+                                        {recipientSource !== 'test' && (
                                           <>
-                                            <DropdownMenuLabel className="text-xs text-gray-500 uppercase tracking-wider px-2 py-1.5 mt-2">
-                                              Campos Personalizados
-                                            </DropdownMenuLabel>
-                                            {customFields.slice(0, 10).map(field => (
-                                              <DropdownMenuItem
-                                                key={field.id}
-                                                className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
-                                                onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, `{{${field.key}}}`)}
-                                              >
-                                                <div className="text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
-                                                <span>{field.label}</span>
-                                              </DropdownMenuItem>
-                                            ))}
+                                            <DropdownMenuSeparator className="bg-white/10 my-1" />
+
+                                            {customFields.length > 0 && (
+                                              <>
+                                                <DropdownMenuLabel className="text-xs text-gray-500 uppercase tracking-wider px-2 py-1.5 mt-2">
+                                                  Campos Personalizados
+                                                </DropdownMenuLabel>
+                                                {customFields.slice(0, 10).map(field => (
+                                                  <DropdownMenuItem
+                                                    key={field.id}
+                                                    className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
+                                                    onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, `{{${field.key}}}`)}
+                                                  >
+                                                    <div className="text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
+                                                    <span>{field.label}</span>
+                                                  </DropdownMenuItem>
+                                                ))}
+                                              </>
+                                            )}
                                           </>
                                         )}
                                       </DropdownMenuContent>
@@ -1834,7 +1860,7 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                                         })()}
                                       </td>
                                       <td className="py-2 pr-3">
-                                        {r.contactId ? (
+                                        {r.contactId && recipientSource !== 'test' ? (
                                           <button
                                             type="button"
                                             onClick={() => {
