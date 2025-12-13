@@ -14,21 +14,22 @@ export const runtime = 'nodejs' // Need Node.js for Supabase
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json()
-        const { companyName, email, phone } = body as {
+        const { companyName, companyAdmin, email, phone } = body as {
             companyName: string
+            companyAdmin: string
             email: string
             phone: string
         }
 
-        if (!companyName || !email || !phone) {
+        if (!companyName || !companyAdmin || !email || !phone) {
             return NextResponse.json(
-                { error: 'Nome, email e telefone são obrigatórios' },
+                { error: 'Empresa, responsável, email e telefone são obrigatórios' },
                 { status: 400 }
             )
         }
 
         // Save company info to database
-        const result = await completeSetup(companyName, email, phone)
+        const result = await completeSetup(companyName, companyAdmin, email, phone)
 
         if (!result.success) {
             return NextResponse.json(

@@ -45,8 +45,9 @@ yarn-debug.log*
 .github/prompts/
 .github/copilot-instructions.md
 
-# Local-only docs / notes
-docs/
+# Docs
+# (Mantido versionado para distribuição/guia. Se precisar ignorar algo específico,
+# adicione padrões mais restritos aqui.)
 SECURITY.md
 metadata.json
 

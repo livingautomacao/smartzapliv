@@ -54,11 +54,6 @@ const OnboardingOverlay = ({
     isLoading: boolean
     onRefresh: () => void
 }) => {
-    // Get Vercel stores URL from health check (dynamically detected)
-    const storesUrl = health?.vercel?.storesUrl
-    // Fallback to generic Vercel stores if not available
-    const fallbackStoresUrl = 'https://vercel.com/dashboard/stores'
-
     // Build setup steps from health status
     const steps: SetupStep[] = [
         {
@@ -84,7 +79,7 @@ const OnboardingOverlay = ({
 
         {
             id: 'qstash',
-            title: 'Upstash QStash',
+            title: 'QStash (Upstash)',
             description: 'Filas de processamento',
             status: health?.services.qstash.status === 'ok'
                 ? 'configured'

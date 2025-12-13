@@ -160,15 +160,18 @@ export async function GET() {
   await Promise.all([
     // 1. DATABASE (Supabase)
     (async () => {
-      if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      const hasPublishableKey =
+        !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+        !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+      if (process.env.NEXT_PUBLIC_SUPABASE_URL && hasPublishableKey) {
         try {
           const start = Date.now()
 
           const { createClient } = await import('@supabase/supabase-js')
-          const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+          const serviceKey = process.env.SUPABASE_SECRET_KEY
           const url = process.env.NEXT_PUBLIC_SUPABASE_URL
 
-          if (!serviceKey || !url) throw new Error('Missing Supabase Service Key')
+          if (!serviceKey || !url) throw new Error('Missing Supabase Secret Key')
 
           const supabaseAdmin = createClient(url, serviceKey, {
             auth: { persistSession: false }

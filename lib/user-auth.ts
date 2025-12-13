@@ -6,11 +6,19 @@
  * - httpOnly + Secure cookies for sessions
  * - Rate limiting for brute force protection
  * 
- * MIGRATED: Now uses Supabase (PostgreSQL) instead of Turso
+ * Usa Supabase (PostgreSQL) como banco de dados
  */
 
 import { cookies } from 'next/headers'
 import { supabase } from './supabase'
+import { normalizePhoneNumber, validateAnyPhoneNumber } from './phone-formatter'
+
+function getFirstName(fullName: string): string {
+  const normalized = fullName.trim().replace(/\s+/gu, ' ')
+  if (!normalized) return ''
+  const [first] = normalized.split(' ')
+  return first || normalized
+}
 
 // ============================================================================
 // CONSTANTS
@@ -48,9 +56,14 @@ export interface UserAuthResult {
  */
 async function upsertSetting(key: string, value: string): Promise<void> {
   const now = new Date().toISOString()
-  await supabase
+  const { error } = await supabase
     .from('settings')
     .upsert({ key, value, updated_at: now }, { onConflict: 'key' })
+
+  if (error) {
+    // Não silencie erros de permissão/RLS — isso causa loops e estados falsos.
+    throw new Error(`Falha ao salvar setting "${key}": ${error.message}`)
+  }
 }
 
 /**
@@ -71,15 +84,41 @@ async function getSetting(key: string): Promise<{ value: string; updated_at: str
  * Delete a setting from the database
  */
 async function deleteSetting(key: string): Promise<void> {
-  await supabase.from('settings').delete().eq('key', key)
+  const { error } = await supabase.from('settings').delete().eq('key', key)
+  if (error) {
+    throw new Error(`Falha ao remover setting "${key}": ${error.message}`)
+  }
 }
 
 /**
  * Check if setup is completed (company exists)
  */
 export async function isSetupComplete(): Promise<boolean> {
-  // Check the env var - database queries were causing loops
-  return process.env.SETUP_COMPLETE === 'true'
+  // Em produção, usamos a env var para evitar consultas e loops.
+  if (process.env.SETUP_COMPLETE === 'true') return true
+
+  // Em dev/local, o fluxo pode rodar sem Vercel.
+  // Então consideramos "setup completo" se a empresa já foi gravada no banco.
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      const { data, error } = await supabase
+        .from('settings')
+        .select('key, value')
+        .eq('key', 'company_name')
+        .single()
+
+      if (error) {
+        // Ajuda a diagnosticar "isSetup:false" causado por permissão negada.
+        console.warn('[isSetupComplete] settings/company_name query error:', error.message)
+        return false
+      }
+      return !!data?.value
+    } catch {
+      return false
+    }
+  }
+
+  return false
 }
 
 /**
@@ -123,6 +162,7 @@ export async function getCompany(): Promise<Company | null> {
  */
 export async function completeSetup(
   companyName: string,
+  companyAdmin: string,
   email: string,
   phone: string
 ): Promise<UserAuthResult> {
@@ -131,12 +171,17 @@ export async function completeSetup(
     return { success: false, error: 'Nome da empresa deve ter pelo menos 2 caracteres' }
   }
 
+  if (!companyAdmin || companyAdmin.trim().length < 2) {
+    return { success: false, error: 'Nome do responsável deve ter pelo menos 2 caracteres' }
+  }
+
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { success: false, error: 'E-mail inválido' }
   }
 
-  if (!phone || phone.replace(/\D/g, '').length < 10) {
-    return { success: false, error: 'Telefone inválido' }
+  const phoneValidation = validateAnyPhoneNumber(phone)
+  if (!phoneValidation.isValid) {
+    return { success: false, error: phoneValidation.error || 'Telefone inválido' }
   }
 
   try {
@@ -145,14 +190,66 @@ export async function completeSetup(
     const existingId = await getSetting('company_id')
     const companyId = existingId?.value || crypto.randomUUID()
 
+    const normalizedPhone = normalizePhoneNumber(phone)
+    const storedPhone = normalizedPhone.replace(/\D/g, '')
+
     // Save company info using parallel upserts
     await Promise.all([
       upsertSetting('company_id', companyId),
       upsertSetting('company_name', companyName.trim()),
+      upsertSetting('company_admin', companyAdmin.trim()),
       upsertSetting('company_email', email.trim().toLowerCase()),
-      upsertSetting('company_phone', phone.replace(/\D/g, '')),
+      upsertSetting('company_phone', storedPhone),
       upsertSetting('company_created_at', now)
     ])
+
+    // Seed automático do "Contato de Teste" (Settings → Testes)
+    // Só cria se ainda não existir, para não sobrescrever a escolha do usuário.
+    try {
+      const existingTestContact = await getSetting('test_contact')
+      const adminFullName = companyAdmin.trim()
+      const adminFirstName = getFirstName(adminFullName)
+      const desiredName = adminFirstName || adminFullName
+
+      if (!existingTestContact?.value) {
+        await upsertSetting(
+          'test_contact',
+          JSON.stringify({
+            name: desiredName,
+            phone: storedPhone,
+            updatedAt: now,
+          })
+        )
+      } else {
+        // Se o contato já existe mas parece ter sido seedado automaticamente com o nome completo,
+        // podemos ajustar para o primeiro nome sem sobrescrever personalizações.
+        try {
+          const parsed = JSON.parse(existingTestContact.value) as unknown
+          if (parsed && typeof parsed === 'object') {
+            const tc = parsed as { name?: unknown; phone?: unknown; updatedAt?: unknown }
+            const currentName = typeof tc.name === 'string' ? tc.name.trim() : ''
+            const currentPhone = typeof tc.phone === 'string' ? tc.phone.replace(/\D/g, '') : ''
+
+            if (currentName === adminFullName && currentPhone === storedPhone) {
+              await upsertSetting(
+                'test_contact',
+                JSON.stringify({
+                  ...tc,
+                  name: desiredName,
+                  phone: storedPhone,
+                  updatedAt: now,
+                })
+              )
+            }
+          }
+        } catch {
+          // Se não for JSON válido, não mexe.
+        }
+      }
+    } catch (err) {
+      // Não bloqueia o setup inteiro se apenas o seed do contato de teste falhar.
+      console.warn('[completeSetup] Falha ao criar test_contact automaticamente:', err)
+    }
 
     // Create session after setup
     await createSession()
@@ -163,7 +260,7 @@ export async function completeSetup(
         id: companyId,
         name: companyName.trim(),
         email: email.trim().toLowerCase(),
-        phone: phone.replace(/\D/g, ''),
+        phone: storedPhone,
         createdAt: now
       }
     }

@@ -24,9 +24,17 @@ export default function BootstrapPage() {
   const [error, setError] = useState('')
   const [step, setStep] = useState<'input' | 'validating' | 'confirm' | 'success'>('input')
   const [project, setProject] = useState<ProjectInfo | null>(null)
+  const [isLocalhost, setIsLocalhost] = useState(false)
 
   // Check for existing session
   useEffect(() => {
+    try {
+      const host = window.location.hostname
+      setIsLocalhost(host === 'localhost' || host === '127.0.0.1' || host === '::1')
+    } catch {
+      setIsLocalhost(false)
+    }
+
     const savedToken = localStorage.getItem('setup_token')
     const savedProject = localStorage.getItem('setup_project')
 
@@ -204,6 +212,38 @@ export default function BootstrapPage() {
               <p className="text-zinc-400 text-sm mb-6">
                 Precisamos do seu token para configurar as variáveis de ambiente
               </p>
+
+              {isLocalhost && (
+                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 mb-6">
+                  <p className="text-sm text-emerald-200 font-medium mb-1">Modo local detectado (localhost)</p>
+                  <p className="text-xs text-zinc-300/80">
+                    Rodando localmente você <strong>não precisa</strong> do token da Vercel. Configure o arquivo <code className="bg-zinc-800 px-1.5 py-0.5 rounded">.env.local</code>
+                    (principalmente <code className="bg-zinc-800 px-1.5 py-0.5 rounded">MASTER_PASSWORD</code>) e siga para o login.
+                  </p>
+                  <div className="mt-3 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => router.push('/login')}
+                      className="bg-zinc-800 hover:bg-zinc-700 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                    >
+                      Ir para Login
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => router.push('/setup/wizard')}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                    >
+                      Abrir Wizard Local
+                    </button>
+                    <a
+                      href="/docs/GUIA_CONFIGURACAO.md"
+                      className="text-emerald-400 hover:underline text-sm self-center"
+                    >
+                      Ver guia
+                    </a>
+                  </div>
+                </div>
+              )}
 
               {/* Instructions */}
               <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-4 mb-6">

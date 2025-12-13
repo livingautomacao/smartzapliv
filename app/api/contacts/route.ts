@@ -12,7 +12,7 @@ export const revalidate = 0
 
 /**
  * GET /api/contacts
- * List all contacts from Turso
+ * Lista todos os contatos do banco (Supabase)
  */
 export async function GET() {
   try {

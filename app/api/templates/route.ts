@@ -78,9 +78,13 @@ async function syncTemplatesToLocalDb(templates: ReturnType<typeof fetchTemplate
 
     // Batch upsert - much faster than sequential inserts
     const { createClient } = await import('@supabase/supabase-js')
+    const supabaseKey = process.env.SUPABASE_SECRET_KEY
+    if (!supabaseKey) {
+      throw new Error('Missing Supabase admin key (SUPABASE_SECRET_KEY)')
+    }
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+      supabaseKey
     )
 
     const { error } = await supabase

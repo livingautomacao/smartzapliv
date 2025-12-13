@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "react-international-phone/style.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -106,6 +107,28 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* ================================
+     INTERNATIONAL PHONE INPUT THEME
+     ================================ */
+  --react-international-phone-height: 48px;
+  --react-international-phone-background-color: #27272a; /* zinc-800 */
+  --react-international-phone-text-color: #f4f4f5; /* zinc-100 */
+  --react-international-phone-font-size: 14px;
+  --react-international-phone-border-radius: 0.75rem; /* rounded-xl */
+  --react-international-phone-border-color: #3f3f46; /* zinc-700 */
+
+  --react-international-phone-country-selector-background-color: #27272a;
+  --react-international-phone-country-selector-background-color-hover: #3f3f46; /* zinc-700 */
+  --react-international-phone-country-selector-border-color: #3f3f46;
+  --react-international-phone-country-selector-arrow-color: #a1a1aa; /* zinc-400 */
+
+  --react-international-phone-dropdown-item-background-color: #18181b; /* zinc-900 */
+  --react-international-phone-dropdown-item-text-color: #f4f4f5;
+  --react-international-phone-dropdown-shadow: 0 10px 30px rgba(0, 0, 0, .5);
+  --react-international-phone-dropdown-item-dial-code-color: #a1a1aa;
+  --react-international-phone-selected-dropdown-item-background-color: #27272a; /* zinc-800 */
+  --react-international-phone-selected-dropdown-item-text-color: #f4f4f5;
 }
 
 /* Tailwind v4 theme customizations */

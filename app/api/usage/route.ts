@@ -70,7 +70,7 @@ export async function GET() {
   // 1. Database Usage (Supabase)
   try {
     const { createClient } = await import('@supabase/supabase-js')
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const serviceKey = process.env.SUPABASE_SECRET_KEY
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
 
     if (!serviceKey || !url) {

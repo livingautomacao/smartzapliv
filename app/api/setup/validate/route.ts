@@ -60,36 +60,168 @@ function cleanCredential(value: string | undefined): string {
 
 async function validateSupabase(credentials: Record<string, string>) {
   const url = cleanCredential(credentials.url)
-  const key = cleanCredential(credentials.key)
+  // Backward-compatible: `key` (old payload) == publishable/public key
+  const publishableKey = cleanCredential(credentials.publishableKey ?? credentials.key)
+  const secretKey = cleanCredential(credentials.secretKey)
 
-  if (!url || !key) {
+  if (!url || !publishableKey) {
     return NextResponse.json(
       { valid: false, error: 'URL e chave são obrigatórios' },
       { status: 400 }
     )
   }
 
-  try {
-    // Attempt to fetch the root of the REST API to verify credentials
-    const response = await fetch(`${url}/rest/v1/`, {
-      headers: {
-        'apikey': key,
-        'Authorization': `Bearer ${key}`
-      }
-    })
+  const looksLikeJwt = (key: string) => {
+    // Very loose JWT check: three base64url-ish segments separated by dots
+    return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(key)
+  }
 
-    if (!response.ok) {
-      // 401 Unauthorized or 403 Forbidden usually mean bad key
-      if (response.status === 401 || response.status === 403) {
-        return NextResponse.json({
-          valid: false,
-          error: 'Chave de API inválida'
-        })
+  const looksLikeSbKey = (key: string) => {
+    return key.startsWith('sb_publishable_') || key.startsWith('sb_secret_')
+  }
+
+  type KeyTestOk = { ok: true; status: number }
+  type KeyTestFail = {
+    ok: false
+    status: number
+    error: string
+    debugBody?: string
+    debug?: {
+      baseUrl: string
+      keyType: string
+      keyLength: number
+      keySuffix: string
+    }
+  }
+  type KeyTestResult = KeyTestOk | KeyTestFail
+
+  const testKey = async (label: string, key: string): Promise<KeyTestResult> => {
+    const baseUrl = url.replace(/\/+$/, '')
+
+    // Doc: publishable/secret (sb_*) are NOT JWTs.
+    // - Always send `apikey`.
+    // - Do NOT send sb_* inside Authorization.
+    // - For legacy JWT keys, Authorization is fine.
+    const headers: Record<string, string> = {
+      apikey: key,
+      Accept: 'application/json',
+    }
+
+    const isSb = looksLikeSbKey(key)
+    const isJwt = looksLikeJwt(key)
+
+    if (isJwt && !isSb) {
+      headers.Authorization = `Bearer ${key}`
+    }
+
+    const endpoints = isSb
+      ? [
+        // Lightweight endpoint that should be reachable with publishable key.
+        `${baseUrl}/auth/v1/settings`,
+        // Fallback: PostgREST root. The gateway should accept `apikey` and mint an internal JWT.
+        `${baseUrl}/rest/v1/`,
+      ]
+      : [
+        // Legacy JWT keys work fine with PostgREST.
+        `${baseUrl}/rest/v1/`,
+      ]
+
+    let last: { status: number; body?: string } | null = null
+    for (const endpoint of endpoints) {
+      const response = await fetch(endpoint, { headers })
+      if (response.ok) {
+        return { ok: true, status: response.status }
       }
+      const status = response.status
+      // Try to capture a tiny body snippet in dev for diagnosis (never include keys)
+      let body: string | undefined
+      if (process.env.NODE_ENV !== 'production') {
+        body = await response.text().catch(() => undefined)
+        if (body && body.length > 400) body = body.slice(0, 400)
+      }
+      last = { status, body }
+
+      // If this endpoint returned something other than auth errors, stop early.
+      // For 401/403 keep trying fallbacks.
+      if (status !== 401 && status !== 403) break
+    }
+
+    const status = last?.status ?? 0
+
+    const safeDebug = process.env.NODE_ENV !== 'production'
+      ? {
+        baseUrl,
+        keyType: isSb ? (key.startsWith('sb_publishable_') ? 'sb_publishable' : key.startsWith('sb_secret_') ? 'sb_secret' : 'sb_unknown') : (isJwt ? 'jwt' : 'unknown'),
+        keyLength: key.length,
+        keySuffix: key.slice(-6),
+      }
+      : undefined
+
+    // 401/403 usually mean bad key (or key doesn't match the project URL)
+    if (status === 401 || status === 403) {
+      const maybeProjectMismatch =
+        label.includes('Publishable')
+          ? ' (confira se a URL do projeto é a mesma de onde você copiou a chave)'
+          : ''
+
+      return {
+        ok: false,
+        status,
+        error: `${label} inválida${maybeProjectMismatch}`,
+        ...(process.env.NODE_ENV !== 'production'
+          ? { debugBody: last?.body, debug: safeDebug }
+          : {}),
+      }
+    }
+
+    return {
+      ok: false,
+      status,
+      error: `Erro de conexão com Supabase (${status})`,
+      ...(process.env.NODE_ENV !== 'production'
+        ? { debugBody: last?.body, debug: safeDebug }
+        : {}),
+    }
+  }
+
+  try {
+    // Common mistake: user pasted a secret key into the publishable field.
+    if (publishableKey.startsWith('sb_secret_')) {
       return NextResponse.json({
         valid: false,
-        error: `Erro de conexão com Supabase (${response.status})`
+        error: 'Você colou uma Secret Key no campo Publishable Key. Use a sb_publishable_... (Public) nesse campo.'
       })
+    }
+
+    const pubResult = await testKey('Publishable Key (Public)', publishableKey)
+    if (!pubResult.ok) {
+      return NextResponse.json({
+        valid: false,
+        error: pubResult.error,
+        ...(process.env.NODE_ENV !== 'production'
+          ? { debug: { publishableStatus: pubResult.status, publishableBody: (pubResult as any).debugBody } }
+          : {}),
+      })
+    }
+
+    // Secret Key é opcional no payload de validação, mas se veio preenchida, validamos também.
+    if (secretKey) {
+      const secretResult = await testKey('Secret Key (Secret)', secretKey)
+      if (!secretResult.ok) {
+        return NextResponse.json({
+          valid: false,
+          error: secretResult.error,
+          ...(process.env.NODE_ENV !== 'production'
+            ? {
+              debug: {
+                publishableStatus: pubResult.status,
+                secretStatus: secretResult.status,
+                secretBody: (secretResult as any).debugBody,
+              },
+            }
+            : {}),
+        })
+      }
     }
 
     return NextResponse.json({ valid: true, message: 'Conexão Supabase OK!' })

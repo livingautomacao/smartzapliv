@@ -28,20 +28,20 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     console.log('Request body:', JSON.stringify(body, null, 2))
     
-    const { companyName, email, phone } = body
+    const { companyName, companyAdmin, email, phone } = body
     
-    console.log('Parsed fields - companyName:', companyName, 'email:', email, 'phone:', phone)
+    console.log('Parsed fields - companyName:', companyName, 'companyAdmin:', companyAdmin, 'email:', email, 'phone:', phone)
     
-    if (!companyName || !email || !phone) {
+    if (!companyName || !companyAdmin || !email || !phone) {
       console.log('Missing required fields')
       return NextResponse.json(
-        { error: 'Todos os campos são obrigatórios' },
+        { error: 'Empresa, responsável, e-mail e telefone são obrigatórios' },
         { status: 400 }
       )
     }
     
     console.log('Calling completeSetup...')
-    const result = await completeSetup(companyName, email, phone)
+    const result = await completeSetup(companyName, companyAdmin, email, phone)
     console.log('completeSetup result:', JSON.stringify(result, null, 2))
     
     if (!result.success) {

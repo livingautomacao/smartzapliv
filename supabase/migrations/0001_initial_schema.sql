@@ -190,18 +190,6 @@ CREATE TABLE IF NOT EXISTS custom_field_definitions (
 
 CREATE INDEX IF NOT EXISTS idx_custom_field_definitions_entity ON custom_field_definitions(entity_type);
 
--- Enable RLS for custom_field_definitions
-ALTER TABLE custom_field_definitions ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY IF NOT EXISTS "Enable read access for all users" ON custom_field_definitions
-    FOR SELECT USING (true);
-
-CREATE POLICY IF NOT EXISTS "Enable insert access for all users" ON custom_field_definitions
-    FOR INSERT WITH CHECK (true);
-
-CREATE POLICY IF NOT EXISTS "Enable delete access for all users" ON custom_field_definitions
-    FOR DELETE USING (true);
-
 GRANT ALL ON custom_field_definitions TO postgres, anon, authenticated, service_role;
 
 -- =============================================================================
@@ -308,3 +296,28 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE template_project_items;
   END IF;
 END $$;
+
+-- =============================================================================
+-- PERMISSIONS (IMPORTANT)
+-- =============================================================================
+-- Quando você cria tabelas via SQL Editor, é comum faltar GRANTs para os roles
+-- usados pelo PostgREST (anon/authenticated). Sem isso, a API retorna 403
+-- (PostgREST error=42501) "permission denied for table ...".
+--
+-- ⚠️ Segurança:
+-- - Se você pretende expor o banco ao frontend, habilite RLS e crie policies.
+-- - O SmartZap usa rotas de API no servidor + senha mestra, mas ainda assim
+--   estas permissões tornam as tabelas acessíveis via PostgREST com a chave pública.
+--   Ajuste conforme seu modelo de segurança.
+
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+GRANT ALL PRIVILEGES ON TABLE campaigns TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE contacts TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE campaign_contacts TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE templates TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE settings TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE account_alerts TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE template_projects TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE template_project_items TO anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON TABLE custom_field_definitions TO anon, authenticated, service_role;

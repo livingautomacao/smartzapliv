@@ -109,6 +109,65 @@ export function validatePhoneNumber(
 }
 
 /**
+ * Validates a phone number for general contact/profile usage (not WhatsApp-specific).
+ * Unlike validatePhoneNumber(), this does NOT require the number to be mobile.
+ */
+export function validateAnyPhoneNumber(
+  phone: string,
+  defaultCountry: CountryCode = 'BR'
+): PhoneValidationResult {
+  const trimmed = phone.trim();
+
+  if (!trimmed) {
+    return {
+      isValid: false,
+      error: 'Número de telefone não pode ser vazio',
+    };
+  }
+
+  try {
+    const isValid = isValidPhoneNumber(trimmed, defaultCountry);
+    if (!isValid) {
+      try {
+        const parsed = parsePhoneNumber(trimmed, defaultCountry);
+        if (!parsed) {
+          return { isValid: false, error: 'Formato de número inválido' };
+        }
+        if (!parsed.isPossible()) {
+          const countryLabel = parsed.country || 'este país';
+          return {
+            isValid: false,
+            error: `Número inválido para ${countryLabel}. Verifique a quantidade de dígitos.`,
+          };
+        }
+        return { isValid: false, error: 'Número de telefone inválido' };
+      } catch {
+        return {
+          isValid: false,
+          error: 'Formato de número inválido. Use formato internacional (+5521999999999)',
+        };
+      }
+    }
+
+    const parsed = parsePhoneNumber(trimmed, defaultCountry);
+    return {
+      isValid: true,
+      metadata: {
+        country: parsed?.country,
+        countryCallingCode: parsed?.countryCallingCode,
+        nationalNumber: parsed?.nationalNumber,
+        type: parsed?.getType(),
+      },
+    };
+  } catch {
+    return {
+      isValid: false,
+      error: 'Formato inválido. Use formato internacional: +5521999999999',
+    };
+  }
+}
+
+/**
  * Normalizes phone number to E.164 international format
  * Required format for WhatsApp API: +XXXXXXXXXXX
  *

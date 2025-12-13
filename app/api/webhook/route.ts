@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
           const campaignId = contactInfo.campaign_id
           const phone = contactInfo.phone
 
-          // Update Turso directly (source of truth)
+          // Atualiza o banco (Supabase) — fonte da verdade
           switch (msgStatus) {
             case 'sent':
               console.log(`📤 Sent confirmed: ${phone} (campaign: ${campaignId})`)
@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
                   console.log(`⏭️ Contact already delivered/read, skipping increment`)
                 }
               } catch (e) {
-                console.error('Turso update failed (delivered):', e)
+                console.error('DB update failed (delivered):', e)
               }
               break
 
@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
                   console.log(`⏭️ Contact already read, skipping increment`)
                 }
               } catch (e) {
-                console.error('Turso update failed (read):', e)
+                console.error('DB update failed (read):', e)
               }
               break
 
@@ -272,7 +272,7 @@ export async function POST(request: NextRequest) {
                 }
 
               } catch (e) {
-                console.error('Turso update failed (failed):', e)
+                console.error('DB update failed (failed):', e)
               }
               break
           }

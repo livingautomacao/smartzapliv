@@ -366,32 +366,29 @@ export const useSettingsController = () => {
   };
 
   // Build setup wizard steps based on health status
-  // Get Vercel stores URL dynamically from health check
   const setupSteps = useMemo((): SetupStep[] => {
     const health = healthQuery.data;
-    const storesUrl = health?.vercel?.storesUrl;
-    const fallbackStoresUrl = 'https://vercel.com/dashboard/stores';
 
     return [
       {
         id: 'qstash',
-        title: 'Upstash QStash',
-        description: 'Filas de mensagens para processamento assíncrono de campanhas. Adicione via Vercel Storage.',
+        title: 'QStash (Upstash)',
+        description: 'Filas de mensagens para processamento assíncrono de campanhas. Configure pelo assistente (/setup).',
         status: health?.services.qstash?.status === 'ok'
           ? 'configured'
           : health?.services.qstash?.status === 'error'
             ? 'error'
             : 'pending',
         icon: React.createElement(Zap, { size: 20, className: 'text-purple-400' }),
-        actionLabel: 'Adicionar no Vercel',
-        actionUrl: storesUrl || fallbackStoresUrl,
+        actionLabel: 'Abrir assistente',
+        actionUrl: '/setup',
         errorMessage: health?.services.qstash?.message,
         isRequired: true,
       },
       {
         id: 'whatsapp',
         title: 'WhatsApp Business API',
-        description: 'Credenciais da Meta para enviar mensagens. Configure após QStash estar pronto.',
+        description: 'Credenciais da Meta para enviar mensagens. (Opcional no início — você pode configurar depois.)',
         status: health?.services.whatsapp?.status === 'ok'
           ? 'configured'
           : health?.services.whatsapp?.status === 'error'
@@ -399,7 +396,7 @@ export const useSettingsController = () => {
             : 'pending',
         icon: React.createElement(MessageSquare, { size: 20, className: 'text-green-400' }),
         errorMessage: health?.services.whatsapp?.message,
-        isRequired: true,
+        isRequired: false,
       },
     ];
   }, [healthQuery.data]);
@@ -409,9 +406,9 @@ export const useSettingsController = () => {
     const health = healthQuery.data;
     if (!health) return false; // Don't show wizard while loading - show settings instead
 
-    // Setup is needed if QStash OR WhatsApp are not configured
-    return health.services.qstash?.status !== 'ok' ||
-      health.services.whatsapp?.status !== 'ok';
+    // Setup é necessário apenas para infra mínima (QStash).
+    // WhatsApp é opcional e pode ser configurado depois.
+    return health.services.qstash?.status !== 'ok';
   }, [healthQuery.data]);
 
   // Check if infrastructure is ready (QStash configured)

@@ -13,24 +13,29 @@ export interface SetupEnvVars {
 
   // Supabase
   NEXT_PUBLIC_SUPABASE_URL: string
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: string
-  SUPABASE_SERVICE_ROLE_KEY: string
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: string
+  SUPABASE_SECRET_KEY: string
 
-  // Upstash
-  UPSTASH_REDIS_REST_URL: string
-  UPSTASH_REDIS_REST_TOKEN: string
+  // QStash (required)
   QSTASH_TOKEN: string
+
+  // Upstash Redis (optional / legacy)
+  UPSTASH_REDIS_REST_URL?: string
+  UPSTASH_REDIS_REST_TOKEN?: string
+
+  // QStash signing keys (optional / advanced)
   QSTASH_CURRENT_SIGNING_KEY?: string
   QSTASH_NEXT_SIGNING_KEY?: string
-  // Stats
+
+  // Stats (optional)
   UPSTASH_EMAIL?: string
   UPSTASH_API_KEY?: string
   UPSTASH_CONSOLE_URL?: string
 
   // WhatsApp
-  WHATSAPP_TOKEN: string
-  WHATSAPP_PHONE_ID: string
-  WHATSAPP_BUSINESS_ACCOUNT_ID: string
+  WHATSAPP_TOKEN?: string
+  WHATSAPP_PHONE_ID?: string
+  WHATSAPP_BUSINESS_ACCOUNT_ID?: string
 
   // Vercel (save for future use)
   VERCEL_TOKEN: string
@@ -67,14 +72,9 @@ export async function POST(request: NextRequest) {
     const requiredFields: (keyof SetupEnvVars)[] = [
       'MASTER_PASSWORD',
       'NEXT_PUBLIC_SUPABASE_URL',
-      'NEXT_PUBLIC_SUPABASE_ANON_KEY',
-      'SUPABASE_SERVICE_ROLE_KEY',
-      'UPSTASH_REDIS_REST_URL',
-      'UPSTASH_REDIS_REST_TOKEN',
+      'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+      'SUPABASE_SECRET_KEY',
       'QSTASH_TOKEN',
-      'WHATSAPP_TOKEN',
-      'WHATSAPP_PHONE_ID',
-      'WHATSAPP_BUSINESS_ACCOUNT_ID',
     ]
 
     const missingFields = requiredFields.filter(field => !envVars[field])
@@ -85,6 +85,21 @@ export async function POST(request: NextRequest) {
         { error: `Campos obrigatórios: ${missingFields.join(', ')}` },
         { status: 400 }
       )
+    }
+
+    // WhatsApp é opcional: se o usuário preencheu algum campo, exigimos todos.
+    const hasAnyWhatsapp = !!(envVars.WHATSAPP_TOKEN || envVars.WHATSAPP_PHONE_ID || envVars.WHATSAPP_BUSINESS_ACCOUNT_ID)
+    if (hasAnyWhatsapp) {
+      const missingWhatsapp: string[] = []
+      if (!envVars.WHATSAPP_TOKEN) missingWhatsapp.push('WHATSAPP_TOKEN')
+      if (!envVars.WHATSAPP_PHONE_ID) missingWhatsapp.push('WHATSAPP_PHONE_ID')
+      if (!envVars.WHATSAPP_BUSINESS_ACCOUNT_ID) missingWhatsapp.push('WHATSAPP_BUSINESS_ACCOUNT_ID')
+      if (missingWhatsapp.length > 0) {
+        return NextResponse.json(
+          { error: `Para configurar WhatsApp, preencha: ${missingWhatsapp.join(', ')}` },
+          { status: 400 }
+        )
+      }
     }
 
     // Prepare env vars array

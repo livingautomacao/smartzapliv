@@ -1,8 +1,7 @@
 /**
  * Supabase Database Service
  * 
- * Drop-in replacement for turso-db.ts
- * Uses same interface for easy migration
+ * Camada de acesso ao banco (Supabase)
  */
 
 import { supabase } from './supabase'
@@ -21,7 +20,7 @@ import {
     CustomFieldDefinition,
 } from '../types'
 
-// Generate a simple ID (same as turso-db.ts for compatibility)
+// Gera um ID simples para entidades que não usam UUID
 const generateId = () => Math.random().toString(36).substr(2, 9)
 
 // ============================================================================

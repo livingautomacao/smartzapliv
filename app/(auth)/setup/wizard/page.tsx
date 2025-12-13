@@ -6,18 +6,21 @@
  * Multi-step configuration wizard:
  * 1. Password (MASTER_PASSWORD)
  * 2. Supabase (database)
- * 3. Upstash (QStash)
+ * 3. QStash (Upstash)
  * 4. WhatsApp (API credentials)
  * 5. Company info
  */
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { InternationalPhoneInput } from '@/components/ui/international-phone-input'
+import { validateAnyPhoneNumber } from '@/lib/phone-formatter'
+import { normalizePhoneNumber } from '@/lib/phone-formatter'
 import {
   Lock, Database, Cloud, MessageSquare, Building2,
   ArrowRight, ArrowLeft, Check, AlertCircle, Loader2,
   Eye, EyeOff, ExternalLink, Mail, Phone,
-  Copy, X, FileJson, Terminal
+  Copy, X, FileJson, Terminal, User
 } from 'lucide-react'
 
 interface WizardData {
@@ -44,6 +47,7 @@ interface WizardData {
 
   // Step 5: Company
   companyName: string
+  companyAdmin: string
   email: string
   phone: string
 }
@@ -61,6 +65,7 @@ const initialData: WizardData = {
   whatsappPhoneId: '',
   whatsappBusinessId: '',
   companyName: '',
+  companyAdmin: '',
   email: '',
   phone: '',
 }
@@ -69,8 +74,8 @@ const STEPS = [
   { id: 1, title: 'Senha', icon: Lock },
   { id: 2, title: 'Database', icon: Database },
   { id: 3, title: 'QStash', icon: Cloud },
-  { id: 4, title: 'WhatsApp', icon: MessageSquare },
-  { id: 5, title: 'Empresa', icon: Building2 },
+  { id: 4, title: 'WhatsApp (opcional)', icon: MessageSquare },
+  { id: 5, title: 'Perfil', icon: Building2 },
 ]
 
 function WizardContent() {
@@ -83,6 +88,8 @@ function WizardContent() {
   const [vercelToken, setVercelToken] = useState('')
   const [projectInfo, setProjectInfo] = useState<{ id: string; name: string; teamId?: string } | null>(null)
   const [setupComplete, setSetupComplete] = useState(false)
+  const [setupMode, setSetupMode] = useState<'vercel' | 'local'>('vercel')
+  const [isLocalhost, setIsLocalhost] = useState(false)
 
   // Validation state
   const [isValidating, setIsValidating] = useState(false)
@@ -107,10 +114,27 @@ function WizardContent() {
   useEffect(() => {
     const isResume = searchParams.get('resume') === 'true'
 
+    // Detect localhost for local install mode
+    try {
+      const host = window.location.hostname
+      setIsLocalhost(host === 'localhost' || host === '127.0.0.1' || host === '::1')
+    } catch {
+      setIsLocalhost(false)
+    }
+
     const token = localStorage.getItem('setup_token')
     const project = localStorage.getItem('setup_project')
 
     if (!token && !isResume) {
+      // Local install: allow wizard access without token
+      const host = typeof window !== 'undefined' ? window.location.hostname : ''
+      const local = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+      if (local) {
+        setSetupMode('local')
+        setProjectInfo({ id: 'local', name: 'Instalação Local' })
+        return
+      }
+
       router.push('/setup/start')
       return
     }
@@ -129,7 +153,19 @@ function WizardContent() {
       }
     } else if (isResume) {
       // Mock project info for UI so it stops loading
-      setProjectInfo({ id: 'resumed', name: 'Configuração Manual' })
+      // If we are resuming on localhost, keep local flavor.
+      const host = typeof window !== 'undefined' ? window.location.hostname : ''
+      const local = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+      if (local) {
+        setSetupMode('local')
+        setProjectInfo({ id: 'local', name: 'Instalação Local' })
+      } else {
+        setProjectInfo({ id: 'resumed', name: 'Configuração Manual' })
+      }
+    } else if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '::1')) {
+      // Local install fallback
+      setSetupMode('local')
+      setProjectInfo({ id: 'local', name: 'Instalação Local' })
     } else {
       router.push('/setup/start')
       return
@@ -172,8 +208,10 @@ function WizardContent() {
         // Map Vercel envs to WizardData
         const mapping: Record<string, keyof WizardData> = {
           NEXT_PUBLIC_SUPABASE_URL: 'supabaseUrl',
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: 'supabaseAnonKey',
-          SUPABASE_SERVICE_ROLE_KEY: 'supabaseServiceKey',
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'supabaseAnonKey',
+          // Backward/alias support
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: 'supabaseAnonKey',
+          SUPABASE_SECRET_KEY: 'supabaseServiceKey',
           QSTASH_TOKEN: 'qstashToken',
           WHATSAPP_TOKEN: 'whatsappToken',
           WHATSAPP_PHONE_ID: 'whatsappPhoneId',
@@ -220,7 +258,15 @@ function WizardContent() {
 
     if (savedData) {
       try {
-        setData(prev => ({ ...prev, ...JSON.parse(savedData) }))
+        const parsed = JSON.parse(savedData)
+
+        // Backward-compat: antes o telefone era salvo em formato nacional (ex.: (21) 99999-9999).
+        // Agora o input trabalha melhor com E.164 (ex.: +5521999999999).
+        if (parsed?.phone && typeof parsed.phone === 'string') {
+          parsed.phone = normalizePhoneNumber(parsed.phone, 'BR')
+        }
+
+        setData(prev => ({ ...prev, ...parsed }))
       } catch (e) {
         console.error('Error parsing saved setup data', e)
       }
@@ -245,13 +291,11 @@ function WizardContent() {
     setError('')
   }
 
-  const formatPhone = (value: string) => {
-    const numbers = value.replace(/\D/g, '')
-    if (numbers.length <= 2) return numbers
-    if (numbers.length <= 7) return `(${numbers.slice(0, 2)}) ${numbers.slice(2)}`
-    if (numbers.length <= 11) return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7)}`
-    return `(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7, 11)}`
+  const isWhatsAppEmpty = () => {
+    return !data.whatsappToken && !data.whatsappPhoneId && !data.whatsappBusinessId
   }
+
+
 
   // Validation function for external services - returns true if valid
   const validateCredentials = async (): Promise<boolean> => {
@@ -265,13 +309,20 @@ function WizardContent() {
       switch (step) {
         case 2: // Supabase
           type = 'database'
-          credentials = { url: data.supabaseUrl, key: data.supabaseAnonKey }
+          credentials = {
+            url: data.supabaseUrl,
+            publishableKey: data.supabaseAnonKey,
+            secretKey: data.supabaseServiceKey,
+          }
           break
         case 3: // QStash
           type = 'qstash'
           credentials = { token: data.qstashToken }
           break
         case 4: // WhatsApp
+          // WhatsApp é opcional no onboarding. Se o usuário não preencher nada,
+          // simplesmente pulamos a validação.
+          if (isWhatsAppEmpty()) return true
           type = 'whatsapp'
           credentials = {
             token: data.whatsappToken,
@@ -294,20 +345,6 @@ function WizardContent() {
       if (!result.valid) {
         setError(result.error || 'Credenciais inválidas')
         return false
-      }
-
-      // If Redis is valid, also validate QStash
-      if (step === 3 && data.qstashToken) {
-        const qstashResponse = await fetch('/api/setup/validate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'qstash', credentials: { token: data.qstashToken } })
-        })
-        const qstashResult = await qstashResponse.json()
-        if (!qstashResult.valid) {
-          setError(`Redis OK, mas QStash falhou: ${qstashResult.error}`)
-          return false
-        }
       }
 
       return true
@@ -337,11 +374,11 @@ function WizardContent() {
           return false
         }
         if (!data.supabaseAnonKey) {
-          setError('Anon Key é obrigatória')
+          setError('Publishable Key é obrigatória')
           return false
         }
         if (!data.supabaseServiceKey) {
-          setError('Service Role Key é obrigatória')
+          setError('Secret Key é obrigatória')
           return false
         }
         break
@@ -352,10 +389,8 @@ function WizardContent() {
         }
         break
       case 4:
-        if (!data.whatsappToken) {
-          setError('Token do WhatsApp é obrigatório')
-          return false
-        }
+        // WhatsApp é opcional: ou o usuário preenche TUDO, ou pode deixar em branco.
+        if (isWhatsAppEmpty()) break
         if (!data.whatsappPhoneId) {
           setError('Phone Number ID é obrigatório')
           return false
@@ -364,19 +399,30 @@ function WizardContent() {
           setError('Business Account ID é obrigatório')
           return false
         }
+        if (!data.whatsappToken) {
+          setError('Access Token do WhatsApp é obrigatório')
+          return false
+        }
         break
       case 5:
         if (data.companyName.trim().length < 2) {
           setError('Nome da empresa deve ter pelo menos 2 caracteres')
           return false
         }
+        if (data.companyAdmin.trim().length < 2) {
+          setError('Nome do responsável deve ter pelo menos 2 caracteres')
+          return false
+        }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
           setError('E-mail inválido')
           return false
         }
-        if (data.phone.replace(/\D/g, '').length < 10) {
-          setError('Telefone inválido')
-          return false
+        {
+          const result = validateAnyPhoneNumber(data.phone)
+          if (!result.isValid) {
+            setError(result.error || 'Telefone inválido')
+            return false
+          }
         }
         break
     }
@@ -474,6 +520,14 @@ function WizardContent() {
   }
 
   const handleNext = async () => {
+    // WhatsApp é opcional, mas o botão "Continuar" deve significar
+    // "validar e seguir com WhatsApp configurado".
+    // Se o usuário não preencheu nada, ele só deve avançar via botão "Pular".
+    if (step === 4 && isWhatsAppEmpty()) {
+      setError('Para avançar, preencha as credenciais do WhatsApp e valide, ou clique em "Pular".')
+      return
+    }
+
     if (!validateStep()) return
 
     // Validate external services for steps 2, 3, 4
@@ -521,6 +575,7 @@ function WizardContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             companyName: data.companyName,
+            companyAdmin: data.companyAdmin,
             email: data.email,
             phone: data.phone,
           })
@@ -529,7 +584,7 @@ function WizardContent() {
         const result = await response.json()
 
         if (!response.ok) {
-          throw new Error(result.error || 'Erro ao salvar dados da empresa')
+          throw new Error(result.error || 'Erro ao salvar dados do perfil')
         }
 
         // Clear persisted state
@@ -542,15 +597,79 @@ function WizardContent() {
       }
 
       // If we fall through to here, we need to do a full setup.
-      // But if we don't have the Vercel Token, we can't!
+      // Local install mode: allow writing to .env.local when on localhost
       if (!vercelToken) {
-        // Redirect to start to get the token again
+        if (isLocalhost) {
+          setSetupMode('local')
+
+          const envVars: Record<string, string> = {
+            MASTER_PASSWORD: data.password,
+            NEXT_PUBLIC_SUPABASE_URL: data.supabaseUrl,
+            NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: data.supabaseAnonKey,
+            SUPABASE_SECRET_KEY: data.supabaseServiceKey,
+            QSTASH_TOKEN: data.qstashToken,
+            UPSTASH_EMAIL: data.upstashEmail,
+            UPSTASH_API_KEY: data.upstashApiKey,
+          }
+
+          // WhatsApp é opcional: só persistir se foi preenchido.
+          if (!isWhatsAppEmpty()) {
+            envVars.WHATSAPP_TOKEN = data.whatsappToken
+            envVars.WHATSAPP_PHONE_ID = data.whatsappPhoneId
+            envVars.WHATSAPP_BUSINESS_ACCOUNT_ID = data.whatsappBusinessId
+          }
+
+          const localResponse = await fetch('/api/setup/local-env', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              envVars
+            })
+          })
+
+          const localResult = await localResponse.json()
+          if (!localResponse.ok) {
+            throw new Error(localResult?.error || 'Erro ao salvar .env.local')
+          }
+
+          setIsLoading(false)
+          setError('')
+          setSetupComplete(true)
+          return
+        }
+
+        // Non-local: redirect to start to get the token again
         setError('Token Vercel expirou. Redirecionando para reconectar...')
         setTimeout(() => router.push('/setup/start'), 2000)
         return
       }
 
       // Full setup mode: Save all env vars to Vercel and trigger redeploy
+      const envVars: Record<string, string> = {
+        MASTER_PASSWORD: data.password,
+        NEXT_PUBLIC_SUPABASE_URL: data.supabaseUrl,
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: data.supabaseAnonKey,
+        SUPABASE_SECRET_KEY: data.supabaseServiceKey,
+        QSTASH_TOKEN: data.qstashToken,
+        UPSTASH_EMAIL: data.upstashEmail,
+        UPSTASH_API_KEY: data.upstashApiKey,
+        // Setup metadata for future resume mode
+        SETUP_COMPLETE: 'true',
+        VERCEL_PROJECT_ID: projectInfo.id,
+        // Temporary: Company info to be saved to DB after redeploy
+        SETUP_COMPANY_NAME: data.companyName,
+        SETUP_COMPANY_ADMIN: data.companyAdmin,
+        SETUP_COMPANY_EMAIL: data.email,
+        SETUP_COMPANY_PHONE: data.phone,
+      }
+
+      // WhatsApp é opcional: só persistir se foi preenchido.
+      if (!isWhatsAppEmpty()) {
+        envVars.WHATSAPP_TOKEN = data.whatsappToken
+        envVars.WHATSAPP_PHONE_ID = data.whatsappPhoneId
+        envVars.WHATSAPP_BUSINESS_ACCOUNT_ID = data.whatsappBusinessId
+      }
+
       const response = await fetch('/api/setup/save-env', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -558,25 +677,7 @@ function WizardContent() {
           token: vercelToken,
           projectId: projectInfo.id,
           teamId: projectInfo.teamId,
-          envVars: {
-            MASTER_PASSWORD: data.password,
-            NEXT_PUBLIC_SUPABASE_URL: data.supabaseUrl,
-            NEXT_PUBLIC_SUPABASE_ANON_KEY: data.supabaseAnonKey,
-            SUPABASE_SERVICE_ROLE_KEY: data.supabaseServiceKey,
-            QSTASH_TOKEN: data.qstashToken,
-            UPSTASH_EMAIL: data.upstashEmail,
-            UPSTASH_API_KEY: data.upstashApiKey,
-            WHATSAPP_TOKEN: data.whatsappToken,
-            WHATSAPP_PHONE_ID: data.whatsappPhoneId,
-            WHATSAPP_BUSINESS_ACCOUNT_ID: data.whatsappBusinessId,
-            // Setup metadata for future resume mode
-            SETUP_COMPLETE: 'true',
-            VERCEL_PROJECT_ID: projectInfo.id,
-            // Temporary: Company info to be saved to DB after redeploy
-            SETUP_COMPANY_NAME: data.companyName,
-            SETUP_COMPANY_EMAIL: data.email,
-            SETUP_COMPANY_PHONE: data.phone,
-          }
+          envVars
         })
       })
 
@@ -612,6 +713,51 @@ function WizardContent() {
 
   // Success state - show completion message
   if (setupComplete) {
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+
+    if (setupMode === 'local') {
+      return (
+        <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+          <div className="w-full max-w-md text-center">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-emerald-500/20 mb-6">
+              <Check className="w-10 h-10 text-emerald-500" />
+            </div>
+            <h1 className="text-2xl font-bold text-white mb-3">
+              Variáveis salvas no modo local
+            </h1>
+            <p className="text-zinc-400 mb-6">
+              As variáveis foram gravadas/atualizadas em <code className="bg-zinc-900 px-2 py-1 rounded">.env.local</code>.
+              <br />
+              Agora você precisa <strong>reiniciar</strong> o servidor de desenvolvimento para que o Next.js carregue as novas variáveis.
+            </p>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-left">
+              <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-300">
+                <li>Pare o <code className="bg-zinc-800 px-1.5 py-0.5 rounded">npm run dev</code> e inicie novamente.</li>
+                <li>Reabra o wizard em modo resume para finalizar o cadastro da empresa.</li>
+              </ol>
+
+              <div className="mt-4 flex flex-col gap-3">
+                <a
+                  href="/setup/wizard?resume=true"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
+                >
+                  Abrir wizard (finalizar empresa)
+                  <ArrowRight className="w-4 h-4" />
+                </a>
+                <a
+                  href={`${origin || ''}/login`}
+                  className="w-full bg-zinc-800 hover:bg-zinc-700 text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center"
+                >
+                  Ir para Login
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
         <div className="w-full max-w-md text-center">
@@ -745,7 +891,7 @@ function WizardContent() {
             </>
           )}
 
-          {/* Step 2: Turso */}
+          {/* Step 2: Supabase */}
           {step === 2 && (
             <>
               <h2 className="text-lg font-semibold text-white mb-1">
@@ -800,23 +946,23 @@ function WizardContent() {
                 </div>
 
                 <div>
-                  <label className="block text-sm text-zinc-400 mb-1">Anon Key (Public)</label>
+                  <label className="block text-sm text-zinc-400 mb-1">Publishable Key (Public)</label>
                   <input
                     type="password"
                     value={data.supabaseAnonKey}
                     onChange={(e) => updateField('supabaseAnonKey', e.target.value)}
-                    placeholder="eyJhbG..."
+                    placeholder="sb_publishable_..."
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent font-mono text-sm"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm text-zinc-400 mb-1">Service Role Key (Secret)</label>
+                  <label className="block text-sm text-zinc-400 mb-1">Secret Key (Secret)</label>
                   <input
                     type="password"
                     value={data.supabaseServiceKey}
                     onChange={(e) => updateField('supabaseServiceKey', e.target.value)}
-                    placeholder="eyJhbG..."
+                    placeholder="sb_secret_..."
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent font-mono text-sm"
                   />
                   <p className="text-xs text-zinc-500 mt-1">Usada para tarefas administrativas no backend.</p>
@@ -902,11 +1048,11 @@ function WizardContent() {
             </>
           )}
 
-          {/* Step 3: Upstash QStash */}
+          {/* Step 3: QStash (Upstash) */}
           {step === 3 && (
             <>
               <h2 className="text-lg font-semibold text-white mb-1">
-                Upstash QStash
+                QStash (Upstash)
               </h2>
               <p className="text-zinc-400 text-sm mb-4">
                 Configure as filas de disparo de mensagens
@@ -932,7 +1078,7 @@ function WizardContent() {
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent font-mono text-sm"
                     autoFocus
                   />
-                  <p className="text-xs text-zinc-500 mt-1">Encontre em QStash → Signing Keys → Current Signing Key</p>
+                  <p className="text-xs text-zinc-500 mt-1">Encontre no QStash → <span className="font-medium">Quickstart</span> (variável <span className="font-mono">QSTASH_TOKEN</span>)</p>
                 </div>
 
                 <div className="pt-4 mt-4 border-t border-zinc-800">
@@ -977,7 +1123,7 @@ function WizardContent() {
                 WhatsApp Cloud API
               </h2>
               <p className="text-zinc-400 text-sm mb-4">
-                Configure a integração com WhatsApp
+                Esta etapa é opcional. Se preferir, clique em <span className="font-medium">Pular</span> e configure depois em <span className="font-medium">Configurações</span>.
               </p>
 
               <a
@@ -1031,10 +1177,10 @@ function WizardContent() {
           {step === 5 && (
             <>
               <h2 className="text-lg font-semibold text-white mb-1">
-                Dados da empresa
+                Seus dados
               </h2>
               <p className="text-zinc-400 text-sm mb-6">
-                Informações que aparecerão no painel
+                Essas informações aparecerão no painel
               </p>
 
               <div className="space-y-4">
@@ -1047,6 +1193,17 @@ function WizardContent() {
                     placeholder="Nome da empresa"
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                     autoFocus
+                  />
+                </div>
+
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                  <input
+                    type="text"
+                    value={data.companyAdmin}
+                    onChange={(e) => updateField('companyAdmin', e.target.value)}
+                    placeholder="Nome do responsável"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                   />
                 </div>
 
@@ -1065,17 +1222,13 @@ function WizardContent() {
                 </div>
 
                 <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
-                  <input
-                    type="tel"
+                  <label className="block text-sm text-zinc-400 mb-1">Telefone</label>
+                  <InternationalPhoneInput
                     value={data.phone}
-                    onChange={(e) => updateField('phone', formatPhone(e.target.value))}
-                    placeholder="(11) 99999-9999"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-11 pr-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    onChange={(phone) => updateField('phone', phone)}
+                    className="w-full"
+                    inputClassName="w-full"
                   />
-                  {data.phone.replace(/\D/g, '').length >= 10 && (
-                    <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-emerald-500" />
-                  )}
                 </div>
               </div>
             </>
@@ -1102,6 +1255,21 @@ function WizardContent() {
                 Voltar
               </button>
             )}
+
+            {step === 4 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError('')
+                  setStep(5)
+                }}
+                disabled={isLoading || isValidating}
+                className="flex-1 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white font-medium py-3 rounded-xl transition-colors"
+              >
+                Pular
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleNext}

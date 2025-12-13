@@ -37,7 +37,7 @@ function buildBodyParameters(contactName: string, templateVariables: string[] = 
   return parameters
 }
 
-// Update contact status in Turso
+// Atualiza status do contato no banco (Supabase)
 async function updateContactStatus(campaignId: string, phone: string, status: 'sent' | 'failed', messageId?: string, error?: string) {
   try {
     await supabase
@@ -61,7 +61,7 @@ export const { POST } = serve<CampaignWorkflowInput>(
   async (context) => {
     const { campaignId, templateName, contacts, templateVariables, phoneNumberId, accessToken } = context.requestPayload
 
-    // Step 1: Mark campaign as SENDING in Turso
+    // Step 1: Mark campaign as SENDING in Supabase
     await context.run('init-campaign', async () => {
       await campaignDb.updateStatus(campaignId, {
         status: CampaignStatus.SENDING,

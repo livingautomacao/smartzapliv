@@ -7,7 +7,7 @@ export interface HealthStatus {
     services: {
         database: {
             status: 'ok' | 'error' | 'not_configured'
-            provider: 'supabase' | 'turso' | 'none'
+            provider: 'supabase' | 'none'
             latency?: number
             message?: string
         }

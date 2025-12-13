@@ -7,7 +7,13 @@
 import { NextResponse } from 'next/server'
 import { getUserAuthStatus } from '@/lib/user-auth'
 
-export const runtime = 'edge'
+// Este endpoint controla redirects do login.
+// No Edge, env vars/SDK podem se comportar diferente e fazer isSetup/isAuthenticated
+// voltarem como false, gerando loop para o wizard.
+export const runtime = 'nodejs'
+
+// Evita cache/stale data (status de sessão/setup precisa ser sempre atual)
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {

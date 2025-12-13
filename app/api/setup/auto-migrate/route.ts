@@ -8,7 +8,7 @@ export const runtime = 'nodejs' // Force Node.js runtime to access filesystem
 export async function GET() {
     try {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-        const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+        const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY
 
         if (!supabaseUrl || !supabaseServiceKey) {
             return NextResponse.json({ error: 'Supabase not configured' }, { status: 400 })
@@ -43,22 +43,13 @@ export async function GET() {
         const { error: migrationError } = await supabase.rpc('exec_sql', { sql_query: sql })
 
         if (migrationError) {
-            // If exec_sql doesn't exist, use direct connection
-            // This requires pg module which we have
-            const { Client } = await import('pg')
-
-            // Build connection string manually
-            const projectRef = supabaseUrl.match(/https:\/\/([^.]+)/)?.[1]
-            const connectionString = `postgresql://postgres:${encodeURIComponent(supabaseServiceKey)}@db.${projectRef}.supabase.co:5432/postgres`
-
-            const client = new Client({
-                connectionString,
-                ssl: { rejectUnauthorized: false }
-            })
-
-            await client.connect()
-            await client.query(sql)
-            await client.end()
+            return NextResponse.json(
+                {
+                    error: 'Falha ao executar migração via RPC (exec_sql). Rode o SQL manualmente no Supabase SQL Editor.',
+                    details: migrationError.message,
+                },
+                { status: 500 }
+            )
         }
 
         return NextResponse.json({

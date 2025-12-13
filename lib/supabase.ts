@@ -2,10 +2,18 @@
  * Supabase Client
  * 
  * PostgreSQL database with connection pooling and RLS
- * Replaces Turso for better performance and regional deployment
+ * Banco principal do SmartZap (PostgreSQL + RLS)
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+
+function getSupabasePublishableKey(): string | undefined {
+    // O Supabase pode gerar esse nome no snippet do dashboard.
+    return (
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+    )
+}
 
 // ============================================================================
 // ENVIRONMENT VALIDATION
@@ -21,11 +29,11 @@ let _supabaseAdmin: SupabaseClient | null = null
 
 export function getSupabaseAdmin(): SupabaseClient | null {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    const key = process.env.SUPABASE_SECRET_KEY
 
     // Debugging environment variables availability
     if (!key) {
-        console.warn('[getSupabaseAdmin] SUPABASE_SERVICE_ROLE_KEY is missing');
+        console.warn('[getSupabaseAdmin] SUPABASE_SECRET_KEY is missing');
         return null;
     }
     if (!url) {
@@ -34,9 +42,9 @@ export function getSupabaseAdmin(): SupabaseClient | null {
     }
 
     // Validation: Ensure Service Key is NOT the Anon Key to prevent "Permission Denied" errors
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (key === anonKey) {
-        console.error('[CRITICAL] SUPABASE_SERVICE_ROLE_KEY matches matches NEXT_PUBLIC_SUPABASE_ANON_KEY. This will cause permission errors. Check Vercel Environment Variables.');
+    const publishableKey = getSupabasePublishableKey();
+    if (publishableKey && key === publishableKey) {
+        console.error('[CRITICAL] Supabase secret key está igual ao publishable key. Isso causa erros de permissão. Verifique as variáveis de ambiente na Vercel.');
     }
 
     if (!_supabaseAdmin) {
@@ -56,7 +64,7 @@ let _supabaseBrowser: SupabaseClient | null = null
 
 export function getSupabaseBrowser(): SupabaseClient | null {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    const key = getSupabasePublishableKey()
 
     if (!url || !key) {
         // Return null when not configured - allows app to boot for setup wizard
@@ -90,8 +98,8 @@ export const supabase = {
     },
 
     /**
-     * Execute raw SQL query (Turso compatibility)
-     * Uses Supabase's pg_query RPC or direct table operations
+     * Execute SQL "raw" (uso interno / compat)
+     * Observação: este helper é limitado — prefira query builder / RPCs explícitas.
      */
     async execute(query: string | { sql: string; args?: unknown[] }): Promise<{
         rows: Record<string, unknown>[];
@@ -182,7 +190,7 @@ export async function checkSupabaseConnection(): Promise<{
 
 export function isSupabaseConfigured(): boolean {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    return !!(url && (serviceKey || anonKey))
+    const publishableKey = getSupabasePublishableKey()
+    const secretKey = process.env.SUPABASE_SECRET_KEY
+    return !!(url && publishableKey && secretKey)
 }

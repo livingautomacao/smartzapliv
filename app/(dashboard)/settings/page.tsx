@@ -12,8 +12,8 @@ export default function SettingsPage() {
   const { usage, isLoading: usageLoading, refetch: refetchUsage } = useUsage()
   const [skipWizard, setSkipWizard] = useState(false)
 
-  // Show Setup Wizard if infrastructure is not ready (Redis + QStash)
-  // User can skip to settings if they want to configure WhatsApp anyway
+  // Show Setup Wizard if minimum infrastructure is not ready (QStash)
+  // WhatsApp pode ser configurado depois em Configurações
   const showWizard = controller.needsSetup && !skipWizard
 
   if (showWizard) {
@@ -83,7 +83,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Usage Panel - sidebar alinhado ao topo */}
-        <div className="w-full xl:w-80 flex-shrink-0">
+        <div className="w-full xl:w-80 shrink-0">
           <UsagePanel
             usage={usage}
             isLoading={usageLoading}

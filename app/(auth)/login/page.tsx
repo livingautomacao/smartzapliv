@@ -20,8 +20,17 @@ function LoginForm() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [companyName, setCompanyName] = useState('')
+  const [isLocalhost, setIsLocalhost] = useState(false)
+  const [isConfigured, setIsConfigured] = useState(true)
 
   useEffect(() => {
+    try {
+      const host = window.location.hostname
+      setIsLocalhost(host === 'localhost' || host === '127.0.0.1' || host === '::1')
+    } catch {
+      setIsLocalhost(false)
+    }
+
     // Get company name from auth status
     console.log('🔍 [LOGIN] Fetching auth status...')
     fetch('/api/auth/status')
@@ -32,8 +41,16 @@ function LoginForm() {
       .then(data => {
         console.log('🔍 [LOGIN] Auth data:', JSON.stringify(data, null, 2))
         if (!data.isConfigured) {
+          setIsConfigured(false)
+
+          // Em localhost, não forçamos o fluxo da Vercel. Mostramos instrução para configurar .env.local.
+          if (isLocalhost) {
+            console.log('🔍 [LOGIN] Not configured in localhost — showing local setup hint')
+            setError('Configuração local incompleta: defina MASTER_PASSWORD no .env.local e reinicie o servidor (npm run dev).')
+            return
+          }
+
           console.log('🔍 [LOGIN] Not configured, redirecting to /setup/start')
-          // No MASTER_PASSWORD = needs setup wizard
           router.push('/setup/start')
         } else if (!data.isSetup) {
           console.log('🔍 [LOGIN] Not setup, redirecting to /setup/wizard?resume=true')
@@ -49,7 +66,7 @@ function LoginForm() {
       .catch((err) => {
         console.error('🔍 [LOGIN] Auth status error:', err)
       })
-  }, [router])
+  }, [router, isLocalhost])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -101,6 +118,15 @@ function LoginForm() {
 
       {/* Card */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+        {!isConfigured && isLocalhost && (
+          <div className="mb-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4">
+            <p className="text-sm text-emerald-200 font-medium">Modo local</p>
+            <p className="text-xs text-zinc-300/80 mt-1">
+              Para destravar o login no localhost, defina <code className="bg-zinc-800 px-1.5 py-0.5 rounded">MASTER_PASSWORD</code> no <code className="bg-zinc-800 px-1.5 py-0.5 rounded">.env.local</code> e reinicie o dev server.
+            </p>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
@@ -127,7 +153,7 @@ function LoginForm() {
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || (!isConfigured && isLocalhost)}
             className="w-full mt-6 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             {isLoading ? (

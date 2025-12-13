@@ -219,11 +219,6 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({ usage, isLoading, onRefr
       if (status === 'warning') return 'Atenção ao uso de execuções.'
       return 'Dentro do plano'
     }
-    if (type === 'turso') {
-      if (status === 'critical') return 'Armazenamento quase cheio!'
-      if (status === 'warning') return 'Monitorar espaço'
-      return 'Espaço de sobra'
-    }
     if (type === 'whatsapp') {
       if (status === 'critical') return 'Próximo do limite do tier!'
       if (status === 'warning') return 'Próximo do limite do tier atual'

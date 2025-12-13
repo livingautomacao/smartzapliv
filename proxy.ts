@@ -22,6 +22,10 @@ const PUBLIC_API_ROUTES = ['/api/auth', '/api/webhook', '/api/health', '/api/sys
 export async function proxy(request: NextRequest) {
     const pathname = request.nextUrl.pathname
 
+    // Session cookie can exist even when SETUP_COMPLETE env isn't set (dev/local).
+    // If the user has a valid session, we should not force them back into the setup wizard.
+    const sessionCookie = request.cookies.get('smartzap_session')
+
     // Allow OPTIONS requests for CORS preflight
     if (request.method === 'OPTIONS') {
         return NextResponse.next()
@@ -31,7 +35,7 @@ export async function proxy(request: NextRequest) {
     // BOOTSTRAP CHECK - Redirect to setup if not configured
     // ==========================================================================
     const hasMasterPassword = !!process.env.MASTER_PASSWORD
-    const isSetupComplete = !!process.env.SETUP_COMPLETE
+    const isSetupComplete = process.env.SETUP_COMPLETE === 'true'
 
     // If not configured and not already on setup, redirect immediately
     if (!hasMasterPassword) {
@@ -41,11 +45,23 @@ export async function proxy(request: NextRequest) {
         }
     }
 
-    // If configured but setup not complete (company info missing), go to wizard
+    // If configured but setup not complete (company info missing), go to wizard.
+    // IMPORTANT: do not block /login (it must remain reachable in dev/local, where
+    // setup completeness is detected via DB, not env). Also, if a session cookie exists,
+    // assume setup was completed and let the user proceed.
     if (hasMasterPassword && !isSetupComplete) {
-        if (!pathname.startsWith('/setup') && !pathname.startsWith('/api') && !pathname.startsWith('/debug')) {
-            const wizardUrl = new URL('/setup/wizard?resume=true', request.url)
-            return NextResponse.redirect(wizardUrl)
+        const hasSession = !!sessionCookie?.value
+
+        if (!hasSession) {
+            if (
+                !pathname.startsWith('/setup') &&
+                !pathname.startsWith('/api') &&
+                !pathname.startsWith('/debug') &&
+                !pathname.startsWith('/login')
+            ) {
+                const wizardUrl = new URL('/setup/wizard?resume=true', request.url)
+                return NextResponse.redirect(wizardUrl)
+            }
         }
     }
 
@@ -84,7 +100,6 @@ export async function proxy(request: NextRequest) {
         }
 
         // Check for user session cookie (for browser API calls)
-        const sessionCookie = request.cookies.get('smartzap_session')
         if (sessionCookie?.value) {
             // Session exists, allow request (validation happens in API route)
             return NextResponse.next()
@@ -108,9 +123,6 @@ export async function proxy(request: NextRequest) {
     if (PUBLIC_PAGES.some(page => pathname.startsWith(page))) {
         return NextResponse.next()
     }
-
-    // Check for session cookie
-    const sessionCookie = request.cookies.get('smartzap_session')
 
     // No session cookie - redirect to login
     if (!sessionCookie?.value) {

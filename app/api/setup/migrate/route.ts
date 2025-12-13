@@ -5,6 +5,7 @@ import path from 'path'
 
 export async function POST(request: NextRequest) {
     let client: Client | null = null
+    let fullSql = ''
 
     try {
         const { connectionString, action } = await request.json()
@@ -56,8 +57,6 @@ export async function POST(request: NextRequest) {
             '0001_initial_schema.sql'
         ]
 
-        let fullSql = ''
-
         for (const file of files) {
             const filePath = path.join(migrationsDir, file)
             const content = await fs.readFile(filePath, 'utf-8')
@@ -77,6 +76,21 @@ export async function POST(request: NextRequest) {
         console.error('Migration error:', error)
 
         let errorMessage = error.message
+        const debug: Record<string, any> = {}
+
+        // Extra debug only in dev to avoid leaking SQL details in production
+        if (process.env.NODE_ENV !== 'production') {
+            const posRaw = error?.position
+            const pos = typeof posRaw === 'string' || typeof posRaw === 'number' ? Number(posRaw) : NaN
+            if (Number.isFinite(pos) && fullSql) {
+                // Postgres error.position is 1-based
+                const idx = Math.max(0, pos - 1)
+                const start = Math.max(0, idx - 160)
+                const end = Math.min(fullSql.length, idx + 160)
+                debug.errorPosition = pos
+                debug.sqlSnippet = fullSql.slice(start, end)
+            }
+        }
 
         // Help user debug connection issues
         if (error.code === 'ENOTFOUND' && error.hostname?.includes('supabase.co')) {
@@ -86,7 +100,10 @@ export async function POST(request: NextRequest) {
         }
 
         return NextResponse.json(
-            { error: `Erro na migração: ${errorMessage}` },
+            {
+                error: `Erro na migração: ${errorMessage}`,
+                ...(Object.keys(debug).length ? { debug } : {})
+            },
             { status: 500 }
         )
     } finally {
