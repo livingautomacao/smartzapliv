@@ -1,12 +1,10 @@
 'use client'
 
 import React from 'react'
-import { z } from 'zod'
-import { toast } from 'sonner'
-import { CreateTemplateSchema } from '@/lib/whatsapp/validators/template.schema'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Code, Bold, Italic, Strikethrough, Plus, ChevronDown } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -57,6 +55,36 @@ function variableCount(text: string): number {
   return unique.size
 }
 
+function nextPositionalVariable(text: string): number {
+  // Encontra o maior {{n}} no texto e retorna n+1.
+  // Se não houver, começa em 1.
+  const matches = text.match(/\{\{\s*(\d+)\s*\}\}/g) || []
+  let max = 0
+  for (const m of matches) {
+    const num = Number(m.replace(/\D+/g, ''))
+    if (!Number.isNaN(num)) max = Math.max(max, num)
+  }
+  return max + 1
+}
+
+function wrapSelection(value: string, start: number, end: number, left: string, right = left) {
+  const before = value.slice(0, start)
+  const mid = value.slice(start, end)
+  const after = value.slice(end)
+  return {
+    value: `${before}${left}${mid}${right}${after}`,
+    nextStart: start + left.length,
+    nextEnd: end + left.length,
+  }
+}
+
+function insertAt(value: string, pos: number, insert: string) {
+  return {
+    value: `${value.slice(0, pos)}${insert}${value.slice(pos)}`,
+    nextPos: pos + insert.length,
+  }
+}
+
 function defaultBodyExamples(text: string): string[][] | undefined {
   const n = variableCount(text)
   if (n <= 0) return undefined
@@ -79,7 +107,7 @@ function Preview({ spec }: { spec: Spec }) {
 
   return (
     <div className="glass-panel rounded-xl p-4">
-      <div className="text-xs text-gray-400 mb-3">Prévia</div>
+      <div className="text-sm font-semibold text-white mb-3">Prévia do modelo</div>
       <div className="rounded-xl border border-white/10 bg-zinc-950 p-4 space-y-3">
         {headerLabel ? (
           <div className="text-sm text-gray-200 font-medium">
@@ -109,27 +137,21 @@ function Preview({ spec }: { spec: Spec }) {
   )
 }
 
-function validateSpec(spec: Spec): { ok: boolean; message?: string } {
-  const res = CreateTemplateSchema.safeParse(spec)
-  if (res.success) return { ok: true }
-  const first = res.error.issues[0]
-  return { ok: false, message: first ? `${first.path.join('.')}: ${first.message}` : 'Spec inválido' }
-}
-
 export function ManualTemplateBuilder({
   id,
   initialSpec,
   onSpecChange,
-  onSave,
-  isSaving,
 }: {
   id: string
   initialSpec: unknown
   onSpecChange: (spec: unknown) => void
-  onSave: (spec: unknown) => void
-  isSaving: boolean
 }) {
   const [spec, setSpec] = React.useState<Spec>(() => ensureBaseSpec(initialSpec))
+  const [showDebug, setShowDebug] = React.useState(false)
+
+  const headerTextRef = React.useRef<HTMLInputElement | null>(null)
+  const bodyRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const footerRef = React.useRef<HTMLInputElement | null>(null)
 
   React.useEffect(() => {
     setSpec(ensureBaseSpec(initialSpec))
@@ -167,36 +189,110 @@ export function ManualTemplateBuilder({
     })
   }
 
-  const onClickValidate = () => {
-    const v = validateSpec(spec)
-    if (v.ok) toast.success('Validação OK (schema)')
-    else toast.error(v.message || 'Spec inválido')
-  }
-
-  const onClickSave = () => {
-    const v = validateSpec(spec)
-    if (!v.ok) {
-      toast.error(v.message || 'Spec inválido')
-      return
-    }
-    onSave(spec)
-  }
-
   const header: any = spec.header
   const buttons: any[] = Array.isArray(spec.buttons) ? spec.buttons : []
 
+  const variableMode: 'positional' | 'named' = spec.parameter_format || 'positional'
+
+  const addVariable = (target: 'header' | 'body' | 'footer') => {
+    const currentText =
+      target === 'header'
+        ? String(header?.text || '')
+        : target === 'footer'
+          ? String(spec.footer?.text || '')
+          : String(spec.body?.text || '')
+
+    const placeholder = (() => {
+      if (variableMode === 'positional') {
+        const next = nextPositionalVariable(currentText)
+        return `{{${next}}}`
+      }
+
+      const name = window.prompt('Nome da variável (ex: first_name)')
+      if (!name) return null
+      const trimmed = name.trim()
+      if (!trimmed) return null
+      return `{{${trimmed}}}`
+    })()
+
+    if (!placeholder) return
+
+    if (target === 'header') {
+      const el = headerTextRef.current
+      const start = el?.selectionStart ?? currentText.length
+      const { value, nextPos } = insertAt(currentText, start, placeholder)
+      updateHeader({ ...(header || { format: 'TEXT' }), format: 'TEXT', text: value, example: header?.example ?? null })
+      requestAnimationFrame(() => {
+        if (!el) return
+        el.focus()
+        el.setSelectionRange(nextPos, nextPos)
+      })
+      return
+    }
+
+    if (target === 'footer') {
+      const el = footerRef.current
+      const start = el?.selectionStart ?? currentText.length
+      const { value, nextPos } = insertAt(currentText, start, placeholder)
+      updateFooter({ ...(spec.footer || {}), text: value })
+      requestAnimationFrame(() => {
+        if (!el) return
+        el.focus()
+        el.setSelectionRange(nextPos, nextPos)
+      })
+      return
+    }
+
+    // body
+    const el = bodyRef.current
+    const start = el?.selectionStart ?? currentText.length
+    const { value, nextPos } = insertAt(currentText, start, placeholder)
+    const example = defaultBodyExamples(value)
+    update({ body: { ...(spec.body || {}), text: value, example: example ? { body_text: example } : undefined } })
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(nextPos, nextPos)
+    })
+  }
+
+  const applyBodyFormat = (kind: 'bold' | 'italic' | 'strike' | 'code') => {
+    const el = bodyRef.current
+    const value = String(spec.body?.text || '')
+    if (!el) return
+    const start = el.selectionStart ?? 0
+    const end = el.selectionEnd ?? 0
+    const token = kind === 'bold' ? '*' : kind === 'italic' ? '_' : kind === 'strike' ? '~' : '`'
+    const { value: nextValue, nextStart, nextEnd } = wrapSelection(value, start, end, token)
+    const example = defaultBodyExamples(nextValue)
+    update({ body: { ...(spec.body || {}), text: nextValue, example: example ? { body_text: example } : undefined } })
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(nextStart, nextEnd)
+    })
+  }
+
+  const headerEnabled = !!spec.header
+  const headerType: HeaderFormat | 'NONE' = headerEnabled ? (header?.format || 'TEXT') : 'NONE'
+  const bodyText: string = String(spec.body?.text || '')
+  const footerText: string = String(spec.footer?.text || '')
+  const headerText: string = String(header?.text || '')
+
+  const headerTextCount = headerText.length
+  const bodyTextCount = bodyText.length
+  const footerTextCount = footerText.length
+
+  const canShowMediaSample = headerType === 'IMAGE' || headerType === 'VIDEO' || headerType === 'DOCUMENT'
+
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr),420px] gap-6">
       <div className="space-y-6">
+        {/* CONFIG (equivalente ao passo anterior na Meta, mas mantemos aqui) */}
         <div className="glass-panel rounded-xl p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-semibold text-white">Configuração</div>
-              <div className="text-xs text-gray-400">ID: <span className="font-mono">{id}</span></div>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={onClickValidate} className="border-white/10 bg-zinc-900 hover:bg-white/5">Validar</Button>
-              <Button onClick={onClickSave} disabled={isSaving}>{isSaving ? 'Salvando...' : 'Salvar'}</Button>
+              <div className="text-sm font-semibold text-white">Configuração do modelo</div>
+              <div className="text-xs text-gray-500">ID: <span className="font-mono">{id}</span></div>
             </div>
           </div>
 
@@ -250,6 +346,237 @@ export function ManualTemplateBuilder({
                   <SelectItem value="named">Named ({'{{first_name}}'})</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+        </div>
+
+        {/* CONTEÚDO (como na Meta) */}
+        <div className="glass-panel rounded-xl p-5 space-y-4">
+          <div>
+            <div className="text-sm font-semibold text-white">Conteúdo</div>
+            <div className="text-xs text-gray-400 mt-1">
+              Adicione um cabeçalho, corpo de texto e rodapé para o seu modelo. A Meta analisa variáveis e conteúdo antes da aprovação.
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-gray-300">Tipo de variável</label>
+              <Select
+                value={variableMode}
+                onValueChange={(v) => update({ parameter_format: v })}
+              >
+                <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-white">
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="positional">Número</SelectItem>
+                  <SelectItem value="named">Nome (avançado)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-gray-300">Amostra de mídia <span className="text-gray-500">• Opcional</span></label>
+              <Select
+                value={canShowMediaSample ? 'handle' : 'none'}
+                onValueChange={() => {
+                  // A seleção real é determinada pelo tipo de Header.
+                  // Mantemos o controle aqui para espelhar a UX da Meta.
+                }}
+                disabled={!canShowMediaSample}
+              >
+                <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-white disabled:opacity-60">
+                  <SelectValue placeholder="Nenhum" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhum</SelectItem>
+                  <SelectItem value="handle">Usar header_handle</SelectItem>
+                </SelectContent>
+              </Select>
+              {!canShowMediaSample ? (
+                <div className="text-xs text-gray-500">Selecione um cabeçalho de mídia (Imagem/Vídeo/Documento) para ativar.</div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* CABEÇALHO */}
+          <div className="pt-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-white">Cabeçalho <span className="text-xs text-gray-500 font-normal">• Opcional</span></div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-300">Tipo</label>
+                <Select
+                  value={headerType}
+                  onValueChange={(v) => {
+                    const format = v as HeaderFormat | 'NONE'
+                    if (format === 'NONE') {
+                      update({ header: null })
+                      return
+                    }
+                    if (format === 'TEXT') updateHeader({ format: 'TEXT', text: '', example: null })
+                    else if (format === 'LOCATION') updateHeader({ format: 'LOCATION' })
+                    else updateHeader({ format, example: { header_handle: [''] } })
+                  }}
+                >
+                  <SelectTrigger className="w-full bg-zinc-900 border-white/10 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">Nenhum</SelectItem>
+                    <SelectItem value="TEXT">Texto</SelectItem>
+                    <SelectItem value="IMAGE">Imagem</SelectItem>
+                    <SelectItem value="VIDEO">Vídeo</SelectItem>
+                    <SelectItem value="DOCUMENT">Documento</SelectItem>
+                    <SelectItem value="LOCATION">Localização</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {headerType === 'TEXT' ? (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-gray-300">Cabeçalho</label>
+                  <div className="text-xs text-gray-500">{headerTextCount}/60</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    ref={headerTextRef as any}
+                    value={headerText}
+                    onChange={(e) => updateHeader({ ...header, format: 'TEXT', text: e.target.value })}
+                    className="bg-zinc-900 border-white/10 text-white"
+                    placeholder="Adicione uma pequena linha de texto (opcional)"
+                    maxLength={60}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => addVariable('header')}
+                    className="border-white/10 bg-zinc-900 hover:bg-white/5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Variável
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {canShowMediaSample ? (
+              <div className="mt-3 space-y-2">
+                <label className="text-xs font-medium text-gray-300">header_handle (mídia)</label>
+                <Input
+                  value={header?.example?.header_handle?.[0] || ''}
+                  onChange={(e) => updateHeader({ ...header, example: { ...(header.example || {}), header_handle: [e.target.value] } })}
+                  className="bg-zinc-900 border-white/10 text-white"
+                  placeholder="Cole o header_handle (upload resumable: em breve)"
+                />
+                <p className="text-xs text-gray-500">
+                  Por enquanto, cole o <span className="font-mono">header_handle</span>. Depois a gente automatiza o upload.
+                </p>
+              </div>
+            ) : null}
+          </div>
+
+          {/* CORPO */}
+          <div className="pt-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-white">Corpo</div>
+              <div className="text-xs text-gray-500">{bodyTextCount}/1024</div>
+            </div>
+
+            <div className="mt-2 rounded-xl border border-white/10 bg-zinc-950">
+              <div className="flex items-center gap-1 px-2 py-2 border-b border-white/10">
+                <Button type="button" variant="ghost" onClick={() => applyBodyFormat('bold')} className="h-8 px-2 text-gray-200 hover:bg-white/5">
+                  <Bold className="w-4 h-4" />
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => applyBodyFormat('italic')} className="h-8 px-2 text-gray-200 hover:bg-white/5">
+                  <Italic className="w-4 h-4" />
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => applyBodyFormat('strike')} className="h-8 px-2 text-gray-200 hover:bg-white/5">
+                  <Strikethrough className="w-4 h-4" />
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => applyBodyFormat('code')} className="h-8 px-2 text-gray-200 hover:bg-white/5">
+                  <Code className="w-4 h-4" />
+                </Button>
+
+                <div className="flex-1" />
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => addVariable('body')}
+                  className="h-8 px-2 text-gray-200 hover:bg-white/5"
+                >
+                  <Plus className="w-4 h-4" />
+                  Adicionar variável
+                </Button>
+              </div>
+
+              <div className="p-2">
+                <Textarea
+                  ref={bodyRef as any}
+                  value={bodyText}
+                  onChange={(e) => {
+                    const text = e.target.value
+                    const example = defaultBodyExamples(text)
+                    update({ body: { ...(spec.body || {}), text, example: example ? { body_text: example } : undefined } })
+                  }}
+                  className="bg-transparent border-none text-white min-h-32 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  placeholder="Digite o texto do corpo (obrigatório)"
+                  maxLength={1024}
+                />
+              </div>
+            </div>
+
+            <div className="mt-2 text-xs text-gray-500">
+              Variáveis detectadas: <span className="font-mono">{variableCount(bodyText)}</span>
+              {!bodyText.trim() ? <span className="text-amber-300"> • O corpo é obrigatório.</span> : null}
+            </div>
+          </div>
+
+          {/* RODAPÉ */}
+          <div className="pt-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-white">Rodapé <span className="text-xs text-gray-500 font-normal">• Opcional</span></div>
+              <div className="text-xs text-gray-500">{footerTextCount}/60</div>
+            </div>
+
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  className="border-white/10 bg-zinc-900 hover:bg-white/5"
+                  onClick={() => updateFooter(spec.footer ? null : { text: '' })}
+                >
+                  {spec.footer ? 'Remover rodapé' : 'Adicionar rodapé'}
+                </Button>
+              </div>
+
+              {spec.footer ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    ref={footerRef as any}
+                    value={footerText}
+                    onChange={(e) => updateFooter({ ...(spec.footer || {}), text: e.target.value })}
+                    className="bg-zinc-900 border-white/10 text-white"
+                    placeholder="Inserir texto"
+                    maxLength={60}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => addVariable('footer')}
+                    className="border-white/10 bg-zinc-900 hover:bg-white/5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Variável
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -374,13 +701,18 @@ export function ManualTemplateBuilder({
 
         <div className="glass-panel rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <div className="text-sm font-semibold text-white">Buttons</div>
+            <div>
+              <div className="text-sm font-semibold text-white">Botões <span className="text-xs text-gray-500 font-normal">• Opcional</span></div>
+              <div className="text-xs text-gray-400">É possível adicionar até 10 botões. Se adicionar mais de 3, eles aparecem em lista.</div>
+            </div>
             <Button
               variant="outline"
               className="border-white/10 bg-zinc-900 hover:bg-white/5"
               onClick={() => updateButtons([...buttons, { type: 'QUICK_REPLY', text: '' }])}
             >
+              <Plus className="w-4 h-4" />
               Adicionar botão
+              <ChevronDown className="w-4 h-4 opacity-70" />
             </Button>
           </div>
 
@@ -712,10 +1044,19 @@ export function ManualTemplateBuilder({
         <Preview spec={spec} />
 
         <div className="glass-panel rounded-xl p-4">
-          <div className="text-xs text-gray-400 mb-2">Spec (debug)</div>
-          <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap break-words">
-            {JSON.stringify(spec, null, 2)}
-          </pre>
+          <button
+            type="button"
+            onClick={() => setShowDebug((v) => !v)}
+            className="w-full flex items-center justify-between text-left"
+          >
+            <div className="text-sm font-semibold text-white">Debug</div>
+            <div className="text-xs text-gray-400">{showDebug ? 'Ocultar' : 'Ver JSON'}</div>
+          </button>
+          {showDebug ? (
+            <pre className="mt-3 text-xs text-gray-300 font-mono whitespace-pre-wrap break-words">
+              {JSON.stringify(spec, null, 2)}
+            </pre>
+          ) : null}
         </div>
       </div>
     </div>
