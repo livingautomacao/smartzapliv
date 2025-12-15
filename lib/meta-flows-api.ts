@@ -47,6 +47,18 @@ const GraphErrorSchema = z
   })
   .passthrough()
 
+export class MetaGraphApiError extends Error {
+  status: number
+  data: unknown
+
+  constructor(message: string, status: number, data: unknown) {
+    super(message)
+    this.name = 'MetaGraphApiError'
+    this.status = status
+    this.data = data
+  }
+}
+
 async function readJsonSafe(res: Response): Promise<any> {
   return await res.json().catch(() => null)
 }
@@ -56,10 +68,40 @@ function buildGraphErrorMessage(data: any, fallback: string): string {
   if (parsed.success) {
     const msg = parsed.data?.error?.message
     const code = parsed.data?.error?.code
+    const subcode = parsed.data?.error?.error_subcode
     if (msg && code) return `${fallback}: (${code}) ${msg}`
+    if (msg && subcode) return `${fallback}: (${subcode}) ${msg}`
     if (msg) return `${fallback}: ${msg}`
   }
   return fallback
+}
+
+function normalizeFlowJson(flowJson: unknown): unknown {
+  // A API da Meta espera que `flow_json` seja uma string contendo um JSON *objeto*.
+  // No nosso DB (JSONB) pode acabar ficando como string (p.ex. quando alguém salvou o JSON
+  // como texto em algum lugar). Isso causaria double-encode e erro (100) Invalid parameter.
+  if (flowJson == null) {
+    throw new Error('Flow JSON vazio. Gere o JSON pelo modo “Formulário” ou salve um JSON válido no painel Avançado.')
+  }
+
+  if (typeof flowJson === 'string') {
+    const trimmed = flowJson.trim()
+    if (!trimmed) {
+      throw new Error('Flow JSON vazio. Gere o JSON pelo modo “Formulário” ou salve um JSON válido no painel Avançado.')
+    }
+    try {
+      return JSON.parse(trimmed)
+    } catch {
+      throw new Error('Flow JSON inválido: esperado um objeto JSON (não texto livre). Salve o JSON no painel Avançado.')
+    }
+  }
+
+  // number/boolean também não fazem sentido aqui.
+  if (typeof flowJson !== 'object') {
+    throw new Error('Flow JSON inválido: esperado um objeto JSON.')
+  }
+
+  return flowJson
 }
 
 export async function metaCreateFlow(params: {
@@ -70,10 +112,11 @@ export async function metaCreateFlow(params: {
   flowJson: unknown
   publish: boolean
 }): Promise<MetaFlowsCreateResult> {
+  const normalizedFlowJson = normalizeFlowJson(params.flowJson)
   const body = {
     name: params.name,
     categories: params.categories,
-    flow_json: JSON.stringify(params.flowJson),
+    flow_json: JSON.stringify(normalizedFlowJson),
     publish: params.publish,
   }
 
@@ -87,7 +130,7 @@ export async function metaCreateFlow(params: {
   })
 
   const data = await readJsonSafe(res)
-  if (!res.ok) throw new Error(buildGraphErrorMessage(data, 'Falha ao criar Flow na Meta'))
+  if (!res.ok) throw new MetaGraphApiError(buildGraphErrorMessage(data, 'Falha ao criar Flow na Meta'), res.status, data)
 
   // Resposta esperada: { id, success, validation_errors? }
   const id = typeof data?.id === 'string' ? data.id : String(data?.id || '')
@@ -118,7 +161,7 @@ export async function metaUpdateFlowMetadata(params: {
   })
 
   const data = await readJsonSafe(res)
-  if (!res.ok) throw new Error(buildGraphErrorMessage(data, 'Falha ao atualizar metadados do Flow na Meta'))
+  if (!res.ok) throw new MetaGraphApiError(buildGraphErrorMessage(data, 'Falha ao atualizar metadados do Flow na Meta'), res.status, data)
 
   return { success: !!data?.success, validation_errors: data?.validation_errors }
 }
@@ -128,10 +171,11 @@ export async function metaUploadFlowJsonAsset(params: {
   flowId: string
   flowJson: unknown
 }): Promise<MetaFlowsBasicResult> {
+  const normalizedFlowJson = normalizeFlowJson(params.flowJson)
   const fd = new FormData()
 
   // A Meta exige multipart com arquivo application/json e asset_type FLOW_JSON.
-  const blob = new Blob([JSON.stringify(params.flowJson)], { type: 'application/json' })
+  const blob = new Blob([JSON.stringify(normalizedFlowJson)], { type: 'application/json' })
   fd.append('file', blob, 'flow.json')
   fd.append('name', 'flow.json')
   fd.append('asset_type', 'FLOW_JSON')
@@ -145,7 +189,7 @@ export async function metaUploadFlowJsonAsset(params: {
   })
 
   const data = await readJsonSafe(res)
-  if (!res.ok) throw new Error(buildGraphErrorMessage(data, 'Falha ao enviar Flow JSON para a Meta'))
+  if (!res.ok) throw new MetaGraphApiError(buildGraphErrorMessage(data, 'Falha ao enviar Flow JSON para a Meta'), res.status, data)
 
   return { success: !!data?.success, validation_errors: data?.validation_errors }
 }
@@ -159,7 +203,7 @@ export async function metaPublishFlow(params: { accessToken: string; flowId: str
   })
 
   const data = await readJsonSafe(res)
-  if (!res.ok) throw new Error(buildGraphErrorMessage(data, 'Falha ao publicar Flow na Meta'))
+  if (!res.ok) throw new MetaGraphApiError(buildGraphErrorMessage(data, 'Falha ao publicar Flow na Meta'), res.status, data)
 
   return { success: !!data?.success, validation_errors: data?.validation_errors }
 }
@@ -175,7 +219,7 @@ export async function metaGetFlowPreview(params: { accessToken: string; flowId: 
   })
 
   const data = await readJsonSafe(res)
-  if (!res.ok) throw new Error(buildGraphErrorMessage(data, 'Falha ao gerar preview do Flow na Meta'))
+  if (!res.ok) throw new MetaGraphApiError(buildGraphErrorMessage(data, 'Falha ao gerar preview do Flow na Meta'), res.status, data)
 
   return {
     id: typeof data?.id === 'string' ? data.id : String(data?.id || ''),
@@ -208,7 +252,7 @@ export async function metaGetFlowDetails(params: {
   })
 
   const data = await readJsonSafe(res)
-  if (!res.ok) throw new Error(buildGraphErrorMessage(data, 'Falha ao buscar detalhes do Flow na Meta'))
+  if (!res.ok) throw new MetaGraphApiError(buildGraphErrorMessage(data, 'Falha ao buscar detalhes do Flow na Meta'), res.status, data)
 
   return {
     id: typeof data?.id === 'string' ? data.id : String(data?.id || ''),

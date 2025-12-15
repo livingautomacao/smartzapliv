@@ -14,6 +14,7 @@ import {
   metaUpdateFlowMetadata,
   metaUploadFlowJsonAsset,
 } from '@/lib/meta-flows-api'
+import { MetaGraphApiError } from '@/lib/meta-flows-api'
 import { generateFlowJsonFromFormSpec, normalizeFlowFormSpec, validateFlowFormSpec } from '@/lib/flow-form'
 
 const PublishSchema = z
@@ -184,6 +185,21 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     })
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Falha ao publicar Flow'
+
+    // Em dev, devolvemos detalhes do erro da Graph API para facilitar debug (sem incluir token).
+    if (process.env.NODE_ENV !== 'production' && error instanceof MetaGraphApiError) {
+      return NextResponse.json(
+        {
+          error: msg,
+          meta: {
+            status: error.status,
+            graphError: (error.data as any)?.error ?? error.data,
+          },
+        },
+        { status: 400 }
+      )
+    }
+
     return NextResponse.json({ error: msg }, { status: 400 })
   }
 }
