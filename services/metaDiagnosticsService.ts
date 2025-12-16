@@ -71,8 +71,20 @@ export const metaDiagnosticsService = {
 
     const json = await res.json().catch(() => null)
     if (!res.ok) {
-      const msg = (json as any)?.error || `Falha ao executar ação (${method})`
-      throw new Error(msg)
+      const baseMsg = (json as any)?.error || `Falha ao executar ação (${method})`
+      const details = (json as any)?.details || null
+      const code = details?.code || details?.error?.code || null
+      const userTitle = details?.error_user_title || details?.error?.error_user_title || null
+      const userMsg = details?.error_user_msg || details?.error?.error_user_msg || null
+
+      const parts = [
+        userTitle ? String(userTitle) : null,
+        String(baseMsg),
+        userMsg ? String(userMsg) : null,
+        code ? `(código ${String(code)})` : null,
+      ].filter(Boolean)
+
+      throw new Error(parts.join(' — '))
     }
 
     return json

@@ -30,6 +30,51 @@ type DiagnosticCheck = {
 	}>
 }
 
+function normalizeUnknownError(err: unknown): { message: string; details?: Record<string, unknown> } {
+	if (!err) return { message: 'Erro desconhecido' }
+
+	if (err instanceof Error) {
+		const anyErr = err as any
+		return {
+			message: err.message || 'Erro',
+			details: {
+				name: err.name,
+				stack: err.stack,
+				...(anyErr?.code ? { code: anyErr.code } : null),
+				...(anyErr?.details ? { details: anyErr.details } : null),
+				...(anyErr?.hint ? { hint: anyErr.hint } : null),
+			},
+		}
+	}
+
+	if (typeof err === 'string') return { message: err }
+
+	if (typeof err === 'object') {
+		const o = err as any
+		const msg =
+			(typeof o.message === 'string' && o.message) ||
+			(typeof o.error_description === 'string' && o.error_description) ||
+			(typeof o.error === 'string' && o.error) ||
+			'Erro (objeto)'
+
+		const details: Record<string, unknown> = {}
+		for (const k of ['code', 'details', 'hint', 'status', 'statusCode', 'name']) {
+			if (o?.[k] != null) details[k] = o[k]
+		}
+		// tenta preservar o payload inteiro quando é “pequeno”
+		try {
+			const json = JSON.parse(JSON.stringify(o))
+			details.raw = json
+		} catch {
+			// ignore
+		}
+
+		return { message: msg, details: Object.keys(details).length ? details : undefined }
+	}
+
+	return { message: String(err) }
+}
+
 function noStoreJson(payload: unknown, init?: { status?: number }) {
 	return NextResponse.json(payload, {
 		status: init?.status ?? 200,
@@ -167,15 +212,17 @@ async function getInternalRecentFailures() {
 
 		return { ok: true as const, top, totalFailedRows: (data || []).length }
 	} catch (e) {
+		const norm = normalizeUnknownError(e)
 		return {
 			ok: false as const,
-			error: e instanceof Error ? e.message : String(e),
+			error: norm.message,
+			details: norm.details,
 		}
 	}
 }
 
 async function getInternalLastStatusUpdateAt(): Promise<
-	{ ok: true; lastAt: string | null } | { ok: false; error: string }
+	{ ok: true; lastAt: string | null } | { ok: false; error: string; details?: Record<string, unknown> }
 > {
 	try {
 		// Observação: não existe uma tabela de "webhook_events" hoje.
@@ -190,7 +237,8 @@ async function getInternalLastStatusUpdateAt(): Promise<
 		const lastAt = (data?.[0] as any)?.updated_at ? String((data?.[0] as any).updated_at) : null
 		return { ok: true, lastAt }
 	} catch (e) {
-		return { ok: false, error: e instanceof Error ? e.message : String(e) }
+		const norm = normalizeUnknownError(e)
+		return { ok: false, error: norm.message, details: norm.details }
 	}
 }
 
@@ -712,7 +760,7 @@ export async function GET() {
 			title: 'Sinais internos (atividade)',
 			status: 'warn',
 			message: 'Não foi possível consultar atividade no DB (best-effort)',
-			details: { error: lastStatus.error },
+			details: { error: lastStatus.error, details: (lastStatus as any).details || null },
 		})
 	}
 
@@ -736,7 +784,7 @@ export async function GET() {
 			title: 'Falhas recentes (últimos 7 dias)',
 			status: 'warn',
 			message: 'Não foi possível consultar falhas recentes (best-effort)',
-			details: { error: recentFailures.error },
+			details: { error: recentFailures.error, details: (recentFailures as any).details || null },
 		})
 	}
 
