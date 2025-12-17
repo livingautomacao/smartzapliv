@@ -20,6 +20,37 @@ function isActionable(check: MetaDiagnosticsCheck) {
   return (check.actions || []).some((a) => a.kind === 'api' || a.kind === 'link')
 }
 
+const STATUS_ORDER: Record<MetaDiagnosticsCheck['status'], number> = {
+  fail: 0,
+  warn: 1,
+  info: 2,
+  pass: 3,
+}
+
+const ID_PRIORITY: Record<string, number> = {
+  creds: 0,
+  meta_health_status: 1,
+  meta_debug_token: 2,
+  meta_token_scopes: 3,
+  meta_token_app_id: 4,
+  meta_waba_phone_link: 5,
+  meta_subscription_messages: 6,
+  meta_me: 7,
+  meta_permissions: 8,
+  meta_waba: 9,
+  meta_phone: 10,
+  internal_recent_failures: 20,
+  internal_last_status_update: 21,
+  webhook_expected: 30,
+}
+
+function getPriorityForCheckId(id: string) {
+  if (id in ID_PRIORITY) return ID_PRIORITY[id]!
+  // checks de acesso (WABA/PHONE_NUMBER) costumam destravar 90% dos erros 100/33
+  if (id.startsWith('meta_access_')) return 4
+  return 999
+}
+
 export function useMetaDiagnosticsController() {
   const queryClient = useQueryClient()
   const [filter, setFilter] = React.useState<MetaDiagnosticsFilter>('problems')
@@ -46,7 +77,27 @@ export function useMetaDiagnosticsController() {
     },
   })
 
-  const checks = query.data?.checks || []
+  const checksRaw = query.data?.checks || []
+
+  const checks = React.useMemo(() => {
+    const copy = [...checksRaw]
+    copy.sort((a, b) => {
+      const sa = STATUS_ORDER[a.status] ?? 99
+      const sb = STATUS_ORDER[b.status] ?? 99
+      if (sa !== sb) return sa - sb
+
+      const aa = isActionable(a) ? 0 : 1
+      const ab = isActionable(b) ? 0 : 1
+      if (aa !== ab) return aa - ab
+
+      const pa = getPriorityForCheckId(a.id)
+      const pb = getPriorityForCheckId(b.id)
+      if (pa !== pb) return pa - pb
+
+      return a.title.localeCompare(b.title)
+    })
+    return copy
+  }, [checksRaw])
 
   const filteredChecks = React.useMemo(() => {
     if (filter === 'all') return checks

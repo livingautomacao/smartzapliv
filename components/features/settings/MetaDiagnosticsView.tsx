@@ -8,6 +8,8 @@ import {
   Copy,
   Clock,
   LifeBuoy,
+  ListChecks,
+  ChevronDown,
   CheckCircle2,
   XCircle,
   AlertTriangle,
@@ -229,6 +231,304 @@ function formatJsonMaybe(value: unknown): string {
   }
 }
 
+function isProblemStatus(s: MetaDiagnosticsCheckStatus) {
+  return s === 'fail' || s === 'warn'
+}
+
+function bestApiAction(actions: MetaDiagnosticsAction[] | undefined) {
+  const list = actions || []
+  // preferimos API actions (um clique) antes de links
+  const api = list.find((a) => a.kind === 'api')
+  return api || null
+}
+
+function firstNextSteps(details: Record<string, unknown> | undefined) {
+  const v = (details as any)?.nextSteps
+  if (!Array.isArray(v)) return []
+  return v.filter((x: any) => typeof x === 'string').slice(0, 4) as string[]
+}
+
+function scrollToCheck(checkId: string) {
+  if (typeof document === 'undefined') return
+  const el = document.getElementById(`check-${checkId}`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function getFriendlyCopy(check: MetaDiagnosticsCheck): { title: string; message: string; why?: string } {
+  const overall = String((check.details as any)?.overall || '')
+
+  // Traduções por ID (mantemos o técnico nos detalhes, mas o texto principal vira “humano”).
+  switch (check.id) {
+    case 'creds':
+      return {
+        title: 'Credenciais do WhatsApp (token e IDs)',
+        message:
+          check.status === 'pass'
+            ? 'Configurado. Se algo falhar, normalmente é permissão/atribuição do token.'
+            : 'Falta configurar token + WABA ID + Phone Number ID em Ajustes.',
+        why: 'Sem isso, não dá pra consultar a Meta nem enviar mensagens.',
+      }
+
+    case 'infra_supabase':
+      return {
+        title: 'Banco de dados (Supabase)',
+        message: check.status === 'pass' ? 'OK. Banco conectado.' : 'Banco não está configurado corretamente.',
+        why: 'O app salva configurações e resultados de envio no Supabase.',
+      }
+
+    case 'infra_qstash':
+      return {
+        title: 'Fila de envio (QStash)',
+        message:
+          check.status === 'pass'
+            ? 'OK. Envio em lote/campanhas pode funcionar.'
+            : 'Não configurado. Campanhas podem falhar para enfileirar.',
+        why: 'Campanhas usam fila para enviar com estabilidade.',
+      }
+
+    case 'meta_health_status':
+      return {
+        title: 'Posso enviar agora?',
+        message:
+          overall === 'AVAILABLE'
+            ? 'Sim. A Meta diz que o envio está liberado.'
+            : overall === 'LIMITED'
+              ? 'Parcialmente. A Meta diz que o envio está limitado.'
+              : overall === 'BLOCKED'
+                ? 'Não. A Meta confirma bloqueio para envio.'
+                : 'Não foi possível confirmar pela Meta (Health Status indisponível).',
+        why: 'Esse é o “veredito oficial” da Meta sobre envio.',
+      }
+
+    case 'meta_debug_token':
+      return {
+        title: 'Token é válido? (validação forte)',
+        message:
+          check.status === 'pass'
+            ? 'Sim. Validado via /debug_token.'
+            : check.status === 'fail'
+              ? 'Não. A Meta marcou o token como inválido.'
+              : check.status === 'warn'
+                ? 'Não conseguimos validar (best-effort).'
+                : 'Opcional. Configure Meta App ID/Secret para validar com prova.',
+        why: 'Evita “achismo” sobre expiração/permissões do token.',
+      }
+
+    case 'meta_token_scopes':
+      return {
+        title: 'Token tem permissões do WhatsApp?',
+        message:
+          check.status === 'pass'
+            ? 'Sim. Escopos principais presentes.'
+            : check.status === 'fail'
+              ? 'Não. Faltam permissões essenciais para envio.'
+              : 'Pode estar faltando alguma permissão. Veja o passo a passo.',
+        why: 'Sem esses escopos, a Meta bloqueia chamadas e envios.',
+      }
+
+    case 'meta_token_app_id':
+      return {
+        title: 'Token é do App certo?',
+        message:
+          check.status === 'warn'
+            ? 'Parece que o token foi gerado em outro App da Meta.'
+            : check.message,
+        why: 'Misturar apps diferentes é causa comum de erro 100/33.',
+      }
+
+    case 'meta_subscription_messages':
+      return {
+        title: 'Receber status (delivered/read) no webhook',
+        message:
+          check.status === 'pass'
+            ? 'Ativo. Você deve receber eventos de mensagem (quando a Meta enviar).'
+            : check.status === 'fail'
+              ? 'Desativado. Você NÃO vai receber delivered/read.'
+              : 'Não deu para confirmar. Veja detalhes.',
+        why: 'Sem “messages” inscrito, a Meta não manda os status para o seu webhook.',
+      }
+
+    case 'meta_waba_phone_link':
+      return {
+        title: 'WABA e número combinam?',
+        message:
+          check.status === 'pass'
+            ? 'Sim. O número aparece dentro do WABA.'
+            : check.status === 'fail'
+              ? 'Não. IDs podem estar trocados ou o token não enxerga o ativo.'
+              : 'Não deu para confirmar.',
+        why: 'Se WABA/Phone não “batem”, o envio falha mesmo com token “parecendo certo”.',
+      }
+
+    case 'meta_phone':
+      return {
+        title: 'Número está acessível (qualidade/tier)',
+        message: check.status === 'pass' ? 'OK. Conseguimos ler dados do número.' : 'Não conseguimos ler o número.',
+        why: 'Se o token não tem acesso ao número, o envio não funciona.',
+      }
+
+    case 'meta_waba':
+      return {
+        title: 'WABA está acessível',
+        message: check.status === 'pass' ? 'OK. Conseguimos ler dados do WABA.' : 'Não conseguimos ler o WABA.',
+        why: 'Se o token não tem acesso ao WABA, nada do WhatsApp funciona.',
+      }
+
+    case 'meta_templates':
+      return {
+        title: 'Templates (aprovados)',
+        message: check.status === 'pass' ? check.message : 'Não encontramos templates (ou token sem acesso).',
+        why: 'Para enviar template, ele precisa existir/aprovar na Meta.',
+      }
+
+    case 'internal_recent_failures':
+      return {
+        title: 'Falhas recentes (histórico)',
+        message: check.message,
+        why: 'Ajuda a ver padrões (pagamento, token, rate limit etc.).',
+      }
+
+    case 'internal_last_status_update':
+      return {
+        title: 'Atividade do sistema',
+        message: check.message,
+        why: 'Se não houver atividade, pode ser falta de envios/testes.',
+      }
+
+    case 'webhook_expected':
+      return {
+        title: 'Webhook configurado no painel da Meta',
+        message: 'Use esta URL no WhatsApp Manager/App para receber eventos.',
+        why: 'Se o webhook estiver errado, você não recebe eventos de mensagens.',
+      }
+  }
+
+  if (check.id.startsWith('meta_access_')) {
+    return {
+      title: 'Token tem acesso ao ativo?',
+      message:
+        check.status === 'pass'
+          ? 'Sim. O token consegue ler o ativo.'
+          : 'Não. Geralmente é ID errado ou falta atribuição do ativo ao token (System User).',
+      why: 'Erro 100/33 quase sempre cai aqui.',
+    }
+  }
+
+  // fallback
+  return { title: check.title, message: check.message }
+}
+
+function QuickStartCard(props: {
+  checks: MetaDiagnosticsCheck[]
+  onRunAction: (a: MetaDiagnosticsAction) => void
+  isActing: boolean
+  lockedNow: boolean
+  lockedReason?: string
+  simpleMode?: boolean
+}) {
+  const problems = React.useMemo(() => {
+    const p = (props.checks || []).filter((c) => isProblemStatus(c.status))
+    // já vem ordenado pelo controller, mas garantimos stable.
+    return p
+  }, [props.checks])
+
+  const items = problems.slice(0, 3)
+
+  if (problems.length === 0) {
+    return (
+      <div className="glass-panel rounded-2xl p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-xs text-gray-500">O que fazer agora</div>
+            <div className="mt-2 text-sm text-white font-medium">Tudo certo por aqui</div>
+            <div className="mt-2 text-sm text-gray-300">
+              Não encontramos falhas/alertas no diagnóstico. Se ainda assim “não envia”, use o Support Packet e envie pro suporte.
+            </div>
+          </div>
+          <div className="text-gray-300">
+            <ListChecks size={18} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="glass-panel rounded-2xl p-6 border border-white/10">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xs text-gray-500">O que fazer agora</div>
+          <div className="mt-2 text-sm text-white font-medium">Siga estes passos (ordem recomendada)</div>
+          <div className="mt-2 text-sm text-gray-300">
+            Pegamos os itens que mais destravam alunos (falhas/atenções) e colocamos em ordem.
+          </div>
+        </div>
+        <div className="text-gray-300">
+          <ListChecks size={18} />
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {items.map((c, idx) => {
+          const action = bestApiAction(c.actions)
+          const steps = firstNextSteps(c.details)
+          const friendly = props.simpleMode ? getFriendlyCopy(c) : { title: c.title, message: c.message }
+          return (
+            <div key={c.id} className="bg-zinc-900/40 border border-white/10 rounded-xl p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <div className="text-xs text-gray-500">Passo {idx + 1}</div>
+                    <StatusBadge status={c.status} />
+                  </div>
+                  <div className="mt-2 text-sm text-white font-semibold truncate">{friendly.title}</div>
+                  <div className="mt-1 text-sm text-gray-300">{friendly.message}</div>
+
+                  {steps.length > 0 && (
+                    <ul className="mt-2 list-disc pl-5 space-y-1 text-sm text-gray-200">
+                      {steps.map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="shrink-0 flex flex-col items-end gap-2">
+                  {action && (
+                    <button
+                      type="button"
+                      onClick={() => props.onRunAction(action)}
+                      disabled={props.isActing || props.lockedNow}
+                      className="px-3 py-2 rounded-lg bg-primary-500 hover:bg-primary-400 text-black font-medium transition-colors text-sm inline-flex items-center gap-2 disabled:opacity-50"
+                      title={props.lockedNow ? (props.lockedReason || 'Bloqueado pela Meta') : undefined}
+                    >
+                      <Wand2 size={14} /> {action.label}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => scrollToCheck(c.id)}
+                    className="px-3 py-2 rounded-lg bg-white/5 text-white hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm font-medium"
+                  >
+                    Ver detalhes
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {problems.length > 3 && (
+        <div className="mt-4 text-xs text-gray-500">
+          Mais itens: {problems.length - 3}. Use o filtro “Problemas” ou “Com ações” abaixo.
+        </div>
+      )}
+    </div>
+  )
+}
+
 function NextSteps({ value }: { value: unknown }) {
   const steps = Array.isArray(value) ? (value as unknown[]) : null
   if (!steps || steps.length === 0) return null
@@ -312,11 +612,13 @@ export function MetaDiagnosticsView(props: {
   onRunAction: (a: MetaDiagnosticsAction) => void
   isActing: boolean
 }) {
+  const [simpleMode, setSimpleMode] = React.useState(true)
   const reportText = props.data?.report?.text || ''
   const supportPacketText = props.data?.report?.supportPacketText || reportText
   const { isCopied, copyToClipboard } = useCopyToClipboard({ timeout: 1800 })
   const lock = React.useMemo(() => hasMetaBusinessLockedEvidence(props.checks), [props.checks])
   const apiActionsDisabled = props.isActing || lock.kind === 'current'
+  const lockedNow = lock.kind === 'current'
 
   const hasGraph100_33 = React.useMemo(() => {
     const checks = props.checks || []
@@ -373,7 +675,7 @@ export function MetaDiagnosticsView(props: {
         <div>
           <PageTitle>Diagnóstico Meta</PageTitle>
           <PageDescription>
-            Central de verificação (Graph API + infraestrutura) com ações rápidas. Ideal pra descobrir por que “não envia” ou “não recebe delivered/read”.
+            Responde em linguagem simples: <b>posso enviar?</b> <b>meu token está ok?</b> <b>vou receber delivered/read?</b>
           </PageDescription>
         </div>
 
@@ -438,6 +740,21 @@ export function MetaDiagnosticsView(props: {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="mb-6">
+        <QuickStartCard
+          checks={props.checks}
+          onRunAction={props.onRunAction}
+          isActing={props.isActing}
+          lockedNow={lockedNow}
+          simpleMode={simpleMode}
+          lockedReason={
+            lockedNow
+              ? `Bloqueado pela Meta (código ${META_BUSINESS_LOCKED_CODE}). Resolva no Business Manager e tente novamente.`
+              : undefined
+          }
+        />
       </div>
 
       {hasGraph100_33 && (
@@ -525,7 +842,7 @@ export function MetaDiagnosticsView(props: {
         </div>
       )}
 
-      {/* Summary */}
+      {/* Resumo */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="glass-panel rounded-2xl p-6">
           <div className="flex items-start justify-between gap-4">
@@ -566,33 +883,45 @@ export function MetaDiagnosticsView(props: {
           </div>
         </div>
 
-        <div className="glass-panel rounded-2xl p-6">
-          <div className="text-xs text-gray-500">Ambiente</div>
-          <div className="mt-2 text-sm text-white">
-            {(props.data?.env as any)?.vercelEnv || '—'}
-          </div>
-          <div className="mt-3 text-xs text-gray-400 space-y-1">
+        <details className="glass-panel rounded-2xl p-6 lg:col-span-2">
+          <summary className="cursor-pointer list-none flex items-center justify-between gap-3">
             <div>
-              <span className="text-gray-500">Deploy:</span>{' '}
-              <span className="font-mono text-white/90">{((props.data?.env as any)?.deploymentId as string) || '—'}</span>
+              <div className="text-xs text-gray-500">Painel técnico</div>
+              <div className="mt-1 text-sm text-white">Ambiente + webhook + ids de deploy</div>
             </div>
-            <div>
-              <span className="text-gray-500">Commit:</span>{' '}
-              <span className="font-mono text-white/90">{((props.data?.env as any)?.gitCommitSha as string)?.slice?.(0, 7) || '—'}</span>
-            </div>
-          </div>
-        </div>
+            <ChevronDown size={16} className="text-gray-400" />
+          </summary>
 
-        <div className="glass-panel rounded-2xl p-6">
-          <div className="text-xs text-gray-500">Webhook (URL esperada)</div>
-          <div className="mt-2 text-sm text-white font-mono break-all">
-            {props.data?.webhook?.expectedUrl || '—'}
+          <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-zinc-900/40 border border-white/10 rounded-xl p-4">
+              <div className="text-xs text-gray-500">Ambiente</div>
+              <div className="mt-2 text-sm text-white">
+                {(props.data?.env as any)?.vercelEnv || '—'}
+              </div>
+              <div className="mt-3 text-xs text-gray-400 space-y-1">
+                <div>
+                  <span className="text-gray-500">Deploy:</span>{' '}
+                  <span className="font-mono text-white/90">{((props.data?.env as any)?.deploymentId as string) || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Commit:</span>{' '}
+                  <span className="font-mono text-white/90">{((props.data?.env as any)?.gitCommitSha as string)?.slice?.(0, 7) || '—'}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-zinc-900/40 border border-white/10 rounded-xl p-4">
+              <div className="text-xs text-gray-500">Webhook (URL esperada)</div>
+              <div className="mt-2 text-sm text-white font-mono break-all">
+                {props.data?.webhook?.expectedUrl || '—'}
+              </div>
+              <div className="mt-3 text-xs text-gray-400">
+                Verify token:{' '}
+                <span className="font-mono text-white/90">{props.data?.webhook?.verifyTokenPreview || '—'}</span>
+              </div>
+            </div>
           </div>
-          <div className="mt-3 text-xs text-gray-400">
-            Verify token:{' '}
-            <span className="font-mono text-white/90">{props.data?.webhook?.verifyTokenPreview || '—'}</span>
-          </div>
-        </div>
+        </details>
       </div>
 
       {lock.kind !== 'none' && (
@@ -680,6 +1009,19 @@ export function MetaDiagnosticsView(props: {
           </button>
         ))}
 
+        <button
+          type="button"
+          onClick={() => setSimpleMode((v) => !v)}
+          className={`ml-2 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
+            simpleMode
+              ? 'bg-emerald-500/10 text-emerald-200 border-emerald-500/20'
+              : 'bg-zinc-900/40 text-gray-300 border-white/10 hover:bg-white/5'
+          }`}
+          title={simpleMode ? 'Modo simples (recomendado)' : 'Modo técnico (para dev/suporte)'}
+        >
+          {simpleMode ? 'Modo simples: ON' : 'Modo simples: OFF'}
+        </button>
+
         <div className="ml-auto text-xs text-gray-500">
           {props.isLoading ? 'Carregando…' : `${props.filteredChecks.length} itens`}
         </div>
@@ -700,14 +1042,21 @@ export function MetaDiagnosticsView(props: {
         )}
 
         {props.filteredChecks.map((c) => (
-          <div key={c.id} className="glass-panel rounded-2xl p-6">
+          <div key={c.id} id={`check-${c.id}`} className="glass-panel rounded-2xl p-6">
+            {(() => {
+              const friendly = simpleMode ? getFriendlyCopy(c) : { title: c.title, message: c.message }
+              return (
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <StatusBadge status={c.status} />
-                  <h3 className="text-sm font-semibold text-white truncate">{c.title}</h3>
+                  <h3 className="text-sm font-semibold text-white truncate">{friendly.title}</h3>
                 </div>
-                <div className="mt-2 text-sm text-gray-300">{c.message}</div>
+                <div className="mt-2 text-sm text-gray-300">{friendly.message}</div>
+
+                {simpleMode && friendly.why && (
+                  <div className="mt-2 text-xs text-gray-500">Por que isso importa: {friendly.why}</div>
+                )}
 
                 <NextSteps value={(c.details as any)?.nextSteps} />
 
@@ -725,7 +1074,7 @@ export function MetaDiagnosticsView(props: {
                 {c.details && (
                   <details className="mt-4">
                     <summary className="cursor-pointer text-xs text-gray-400 hover:text-white transition-colors">
-                      Ver detalhes técnicos
+                      {simpleMode ? 'Detalhes (para suporte)' : 'Ver detalhes técnicos'}
                     </summary>
                     <pre className="mt-3 text-xs bg-zinc-950/50 border border-white/10 rounded-xl p-4 overflow-auto text-gray-200">
                       {formatJsonMaybe(c.details)}
@@ -734,6 +1083,8 @@ export function MetaDiagnosticsView(props: {
                 )}
               </div>
             </div>
+              )
+            })()}
           </div>
         ))}
       </div>
