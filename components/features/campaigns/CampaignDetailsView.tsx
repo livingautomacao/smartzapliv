@@ -212,6 +212,9 @@ interface CampaignDetailsViewProps {
   onLoadMore?: () => void;
   canLoadMore?: boolean;
   isLoadingMore?: boolean;
+  // Delivered filter mode
+  includeReadInDelivered?: boolean;
+  setIncludeReadInDelivered?: (value: boolean) => void;
 }
 
 export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
@@ -251,6 +254,8 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
   onLoadMore,
   canLoadMore,
   isLoadingMore,
+  includeReadInDelivered,
+  setIncludeReadInDelivered,
 }) => {
   const [showTemplatePreview, setShowTemplatePreview] = useState(false);
   const [isPerfOpen, setIsPerfOpen] = useState(false);
@@ -578,7 +583,20 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
           icon={CheckCircle2}
           color="#10b981"
           isActive={filterStatus === MessageStatus.DELIVERED}
-          onClick={() => setFilterStatus?.(filterStatus === MessageStatus.DELIVERED ? null : MessageStatus.DELIVERED)}
+          onClick={() => {
+            if (!setFilterStatus) return
+
+            const isActiveNow = filterStatus === MessageStatus.DELIVERED
+            if (isActiveNow) {
+              setFilterStatus(null)
+              return
+            }
+
+            // Padrão "enterprise": KPI Entregues é cumulativo (delivered + read).
+            // Ao clicar no card, abrimos a visão cumulativa para a lista bater com o número.
+            setFilterStatus(MessageStatus.DELIVERED)
+            setIncludeReadInDelivered?.(true)
+          }}
         />
         <DetailCard
           title="Lidas"
@@ -843,6 +861,24 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
           </h3>
 
           <div className="flex gap-2">
+            {filterStatus === MessageStatus.DELIVERED && setIncludeReadInDelivered && (
+              <button
+                type="button"
+                onClick={() => setIncludeReadInDelivered(!includeReadInDelivered)}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-2 ${
+                  includeReadInDelivered
+                    ? 'bg-blue-500/10 border-blue-500/20 text-blue-300 hover:bg-blue-500/15'
+                    : 'bg-zinc-900/50 border-white/10 text-gray-300 hover:text-white hover:bg-white/5'
+                }`}
+                title={includeReadInDelivered
+                  ? 'Mostrando entregues + lidas (cumulativo)'
+                  : 'Mostrando apenas entregues (não lidas)'}
+              >
+                <Eye size={14} />
+                {includeReadInDelivered ? 'Inclui lidas' : 'Só não lidas'}
+              </button>
+            )}
+
             <div className="flex items-center gap-2 bg-zinc-900/50 border border-white/10 rounded-lg px-3 py-1.5 w-full sm:w-64 focus-within:border-primary-500/50 transition-all">
               <Search size={14} className="text-gray-500" />
               <input

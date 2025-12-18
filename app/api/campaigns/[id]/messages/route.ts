@@ -17,6 +17,7 @@ interface Params {
  * - limit: number of messages per page (default: 50, max: 100)
  * - offset: pagination offset (default: 0)
  * - status: filter by status (optional)
+ * - includeRead: quando status=DELIVERED, inclui status=read (optional)
  */
 export async function GET(request: Request, { params }: Params) {
   try {
@@ -27,6 +28,8 @@ export async function GET(request: Request, { params }: Params) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100)
     const offset = parseInt(searchParams.get('offset') || '0')
     const statusFilter = searchParams.get('status')
+    const includeReadRaw = searchParams.get('includeRead')
+    const includeRead = includeReadRaw === '1' || includeReadRaw === 'true'
 
     // 1. Get aggregated stats (parallel queries)
     const [
@@ -70,9 +73,11 @@ export async function GET(request: Request, { params }: Params) {
         // "Enviado" = efetivamente disparado (exclui pending e skipped)
         query = query.in('status', ['sent', 'delivered', 'read', 'failed'])
       } else if (statusFilter === MessageStatus.DELIVERED) {
-        // "Entregues" (status atual) = delivered (não inclui read)
-        // Observação: read é um status separado (e normalmente implica que já foi entregue).
-        query = query.eq('status', 'delivered')
+        // "Entregues" (status atual) = delivered (não inclui read) por padrão.
+        // Quando includeRead=true, vira uma visão cumulativa (delivered + read).
+        query = includeRead
+          ? query.in('status', ['delivered', 'read'])
+          : query.eq('status', 'delivered')
       } else if (statusFilter === MessageStatus.READ) {
         query = query.eq('status', 'read')
       } else if (statusFilter === MessageStatus.SKIPPED) {

@@ -44,6 +44,8 @@ export default function CampaignDetailsPage() {
       onLoadMore={controller.onLoadMore}
       canLoadMore={controller.canLoadMore}
       isLoadingMore={controller.isLoadingMore}
+      includeReadInDelivered={controller.includeReadInDelivered}
+      setIncludeReadInDelivered={controller.setIncludeReadInDelivered}
     />
   )
 }

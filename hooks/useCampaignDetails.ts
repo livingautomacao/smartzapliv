@@ -77,6 +77,7 @@ export const useCampaignDetailsController = () => {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<MessageStatus | null>(null);
+  const [includeReadInDelivered, setIncludeReadInDelivered] = useState(false);
   const [extraMessages, setExtraMessages] = useState<Message[]>([]);
   const [nextOffset, setNextOffset] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -155,10 +156,22 @@ export const useCampaignDetailsController = () => {
     setIsLoadingMore(false)
   }, [id, filterStatus])
 
+  // Se sair do filtro "Entregues", desliga o modo cumulativo.
+  useEffect(() => {
+    if (filterStatus !== MessageStatus.DELIVERED && includeReadInDelivered) {
+      setIncludeReadInDelivered(false)
+    }
+  }, [filterStatus, includeReadInDelivered])
+
   // Fetch messages with optional polling
   const messagesQuery = useQuery<CampaignMessagesResponse>({
-    queryKey: ['campaignMessages', id, filterStatus],
-    queryFn: () => campaignService.getMessages(id!, { status: filterStatus || undefined, limit: MESSAGES_PAGE_LIMIT, offset: 0 }),
+    queryKey: ['campaignMessages', id, filterStatus, includeReadInDelivered],
+    queryFn: () => campaignService.getMessages(id!, {
+      status: filterStatus || undefined,
+      includeRead: filterStatus === MessageStatus.DELIVERED ? includeReadInDelivered : undefined,
+      limit: MESSAGES_PAGE_LIMIT,
+      offset: 0,
+    }),
     enabled: !!id && !id.startsWith('temp_'),
     staleTime: 5000,
     // Backup polling only while connected and active
@@ -230,6 +243,7 @@ export const useCampaignDetailsController = () => {
     try {
       const res = await campaignService.getMessages(id, {
         status: filterStatus || undefined,
+        includeRead: filterStatus === MessageStatus.DELIVERED ? includeReadInDelivered : undefined,
         limit: MESSAGES_PAGE_LIMIT,
         offset,
       })
@@ -442,6 +456,8 @@ export const useCampaignDetailsController = () => {
     onLoadMore: handleLoadMore,
     canLoadMore,
     isLoadingMore,
+    includeReadInDelivered,
+    setIncludeReadInDelivered,
     // Realtime status
     isRealtimeConnected,
     shouldShowRefreshButton,

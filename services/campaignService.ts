@@ -121,7 +121,7 @@ export const campaignService = {
   },
 
   // ASYNC: Get real message status from campaign_contacts table (paginated)
-  getMessages: async (id: string, options?: { limit?: number; offset?: number; status?: string }): Promise<{
+  getMessages: async (id: string, options?: { limit?: number; offset?: number; status?: string; includeRead?: boolean }): Promise<{
     messages: Message[];
     stats: { total: number; pending: number; sent: number; delivered: number; read: number; skipped: number; failed: number };
     pagination: { limit: number; offset: number; total: number; hasMore: boolean };
@@ -130,6 +130,7 @@ export const campaignService = {
     if (options?.limit) params.set('limit', String(options.limit));
     if (options?.offset) params.set('offset', String(options.offset));
     if (options?.status) params.set('status', options.status);
+    if (options?.includeRead) params.set('includeRead', '1');
 
     const url = `/api/campaigns/${id}/messages${params.toString() ? `?${params}` : ''}`;
     const response = await fetch(url);
