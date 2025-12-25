@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Copy, Play, Webhook } from "lucide-react";
+import { Clock, Copy, Hash, Play, Webhook } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/builder/ui/button";
 import { CodeEditor } from "@/components/builder/ui/code-editor";
@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/builder/ui/select";
 import { TimezoneSelect } from "@/components/builder/ui/timezone-select";
+import { TemplateBadgeTextarea } from "@/components/builder/ui/template-badge-textarea";
 import { SchemaBuilder, type SchemaField } from "./schema-builder";
 
 type TriggerConfigProps = {
@@ -59,6 +60,12 @@ export function TriggerConfig({
               <div className="flex items-center gap-2">
                 <Play className="h-4 w-4" />
                 Manual
+              </div>
+            </SelectItem>
+            <SelectItem value="Keywords">
+              <div className="flex items-center gap-2">
+                <Hash className="h-4 w-4" />
+                Keywords
               </div>
             </SelectItem>
             <SelectItem value="Schedule">
@@ -139,6 +146,29 @@ export function TriggerConfig({
             </div>
             <p className="text-muted-foreground text-xs">
               Enter a sample JSON payload to test the webhook trigger.
+            </p>
+          </div>
+        </>
+      )}
+
+      {/* Keywords fields */}
+      {config?.triggerType === "Keywords" && (
+        <>
+          <div className="space-y-2">
+            <Label className="ml-1" htmlFor="keywordList">
+              Keywords (one per line)
+            </Label>
+            <TemplateBadgeTextarea
+              disabled={disabled}
+              id="keywordList"
+              onChange={(value) => onUpdateConfig("keywordList", value)}
+              placeholder={"price\npricing\nquote\norcamento"}
+              rows={6}
+              value={(config?.keywordList as string) || ""}
+            />
+            <p className="text-muted-foreground text-xs">
+              Trigger only when the inbound message includes any of these
+              keywords.
             </p>
           </div>
         </>

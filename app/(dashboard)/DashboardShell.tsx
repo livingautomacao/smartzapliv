@@ -9,12 +9,12 @@ import {
     MessageSquare,
     Users,
     Settings,
-    Plus,
     LogOut,
     Menu,
-    X,
     Bell,
     Zap,
+    ChevronLeft,
+    ChevronRight,
     FileText,
     ClipboardList,
     AlertTriangle,
@@ -24,8 +24,6 @@ import {
     MessageCircle,
     Sparkles,
     ExternalLink,
-    ChevronLeft,
-    ChevronRight,
     Workflow
 } from 'lucide-react'
 import React from 'react'
@@ -406,32 +404,6 @@ const OnboardingOverlay = ({
 import { PrefetchLink } from '@/components/ui/PrefetchLink'
 import { AccountAlertBanner } from '@/components/ui/AccountAlertBanner'
 
-interface SidebarItemProps {
-    href: string
-    icon: React.ComponentType<{ size?: number }>
-    label: string
-    isActive: boolean
-    collapsed?: boolean
-    onClick?: () => void
-    onMouseEnter?: () => void
-}
-
-const SidebarItem = ({ href, icon: Icon, label, isActive, collapsed, onClick, onMouseEnter }: SidebarItemProps) => (
-    <PrefetchLink
-        href={href}
-        onClick={onClick}
-        onMouseEnter={onMouseEnter}
-        title={label}
-        className={`flex items-center ${collapsed ? 'h-10 w-10 justify-center px-0' : 'gap-3 px-4 py-3'} rounded-xl transition-all duration-200 mb-1 ${isActive
-            ? 'bg-primary-500/10 text-primary-400 font-medium border border-primary-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
-            : 'text-gray-400 hover:bg-white/5 hover:text-white'
-            }`}
-    >
-        <Icon size={20} />
-        {!collapsed && <span>{label}</span>}
-    </PrefetchLink>
-)
-
 export function DashboardShell({
     children,
     initialAuthStatus,
@@ -446,7 +418,7 @@ export function DashboardShell({
     const queryClient = useQueryClient()
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
     const [isLoggingOut, setIsLoggingOut] = useState(false)
-    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+    const [isSidebarHidden, setIsSidebarHidden] = useState(false)
 
     // Enable real-time toast notifications for global events
     // This shows toasts when campaigns complete, new contacts are added, etc.
@@ -465,21 +437,6 @@ export function DashboardShell({
         refetchOnMount: false,
         refetchOnWindowFocus: false,
     })
-
-    const companyName = authStatus?.company?.name || initialAuthStatus?.company?.name
-
-    useEffect(() => {
-        const collapsedCookie = document.cookie
-            .split('; ')
-            .find((row) => row.startsWith('app-sidebar-collapsed='))
-        if (collapsedCookie) {
-            setIsSidebarCollapsed(collapsedCookie.split('=')[1] === 'true')
-        }
-    }, [])
-
-    useEffect(() => {
-        document.cookie = `app-sidebar-collapsed=${isSidebarCollapsed}; path=/; max-age=31536000`
-    }, [isSidebarCollapsed])
 
     // Logout handler
     const handleLogout = async () => {
@@ -615,6 +572,59 @@ export function DashboardShell({
 
     const isBuilderRoute = pathname?.startsWith('/builder') ?? false
 
+    const Sidebar = (
+        <aside
+            className={`fixed lg:static inset-y-0 left-0 z-50 w-14 bg-zinc-950 border-r border-white/5 transform transition-transform duration-200 ease-in-out ${isSidebarHidden
+                ? '-translate-x-full'
+                : isMobileMenuOpen
+                    ? 'translate-x-0'
+                    : '-translate-x-full lg:translate-x-0'
+                }`}
+        >
+            <div className="flex h-full w-14 flex-col items-center gap-3 py-3">
+                <button
+                    type="button"
+                    className="hidden lg:flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                    onClick={() => setIsSidebarHidden((prev) => !prev)}
+                    title={isSidebarHidden ? 'Expandir menu' : 'Recolher menu'}
+                >
+                    <ChevronLeft size={14} />
+                </button>
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-linear-to-br from-primary-600 to-primary-800 shadow-lg shadow-primary-900/20">
+                    <Zap className="text-white" size={18} fill="currentColor" />
+                </div>
+                <nav className="flex flex-1 flex-col items-center gap-1.5 pt-1">
+                    {navItems.map((item) => (
+                        <PrefetchLink
+                            key={item.path}
+                            href={item.path}
+                            className={`group flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-gray-400 transition-colors hover:border-white/10 hover:bg-white/5 hover:text-white ${pathname === item.path ? 'bg-white/5 text-white' : ''}`}
+                            onMouseEnter={() => prefetchRoute(item.path)}
+                            title={item.label}
+                        >
+                            <item.icon size={16} />
+                        </PrefetchLink>
+                    ))}
+                </nav>
+                <button
+                    onClick={handleLogout}
+                    disabled={isLoggingOut}
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-gray-400 transition-colors hover:bg-white/5 hover:text-white"
+                    title="Sair"
+                >
+                    {isLoggingOut ? (
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-500 border-t-white" />
+                    ) : (
+                        <LogOut size={16} />
+                    )}
+                </button>
+                <div className="text-[10px] text-gray-700 font-mono">
+                    v{process.env.NEXT_PUBLIC_APP_VERSION}
+                </div>
+            </div>
+        </aside>
+    )
+
     if (isBuilderRoute) {
         return (
             <PageLayoutProvider>
@@ -627,39 +637,7 @@ export function DashboardShell({
                         "--border": "oklch(0.27 0 0)",
                     } as React.CSSProperties}
                 >
-                    <aside className="flex h-screen w-14 shrink-0 flex-col items-center gap-3 border-r border-white/5 bg-zinc-950 py-3 z-40">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-linear-to-br from-primary-600 to-primary-800 shadow-lg shadow-primary-900/20">
-                            <Zap className="text-white" size={18} fill="currentColor" />
-                        </div>
-                        <nav className="flex flex-1 flex-col items-center gap-1.5 pt-1">
-                            {navItems.map((item) => (
-                                <PrefetchLink
-                                    key={item.path}
-                                    href={item.path}
-                                    className={`group flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-gray-400 transition-colors hover:border-white/10 hover:bg-white/5 hover:text-white ${pathname === item.path ? 'bg-white/5 text-white' : ''}`}
-                                    onMouseEnter={() => prefetchRoute(item.path)}
-                                    title={item.label}
-                                >
-                                    <item.icon size={16} />
-                                </PrefetchLink>
-                            ))}
-                        </nav>
-                        <button
-                            onClick={handleLogout}
-                            disabled={isLoggingOut}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-gray-400 transition-colors hover:bg-white/5 hover:text-white"
-                            title="Sair"
-                        >
-                            {isLoggingOut ? (
-                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-500 border-t-white" />
-                            ) : (
-                                <LogOut size={16} />
-                            )}
-                        </button>
-                        <div className="text-[10px] text-gray-700 font-mono">
-                            v{process.env.NEXT_PUBLIC_APP_VERSION}
-                        </div>
-                    </aside>
+                    {Sidebar}
                     <div className="flex-1 min-w-0">
                         {children}
                     </div>
@@ -680,105 +658,7 @@ export function DashboardShell({
             )}
 
             {/* Sidebar */}
-            <aside
-                className={`fixed lg:static inset-y-0 left-0 z-50 ${isSidebarCollapsed ? 'w-20' : 'w-56'} bg-zinc-950 lg:bg-transparent border-r border-white/5 transform transition-transform duration-200 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-                    }`}
-            >
-                <div className={`h-full flex flex-col ${isSidebarCollapsed ? 'p-3' : 'p-4'}`}>
-                    {/* Logo */}
-                    <div className={`h-16 flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-2'} mb-6`}>
-                        <div className={`w-10 h-10 bg-linear-to-br from-primary-600 to-primary-800 rounded-xl flex items-center justify-center ${isSidebarCollapsed ? 'mr-0' : 'mr-3'} shadow-lg shadow-primary-900/20 border border-white/10`}>
-                            <Zap className="text-white" size={20} fill="currentColor" />
-                        </div>
-                        {!isSidebarCollapsed && (
-                            <div>
-                                <span className="text-xl font-bold text-white tracking-tight block">SmartZap</span>
-                                {/* Workspace label removed to reduce visual noise */}
-                            </div>
-                        )}
-                        <button
-                            type="button"
-                            className="ml-auto hidden lg:inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
-                            onClick={() => setIsSidebarCollapsed((prev) => !prev)}
-                            title={isSidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
-                        >
-                            {isSidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-                        </button>
-                        <button
-                            className="ml-auto lg:hidden"
-                            onClick={() => setIsMobileMenuOpen(false)}
-                        >
-                            <X size={20} className="text-gray-400" />
-                        </button>
-                    </div>
-
-                    {/* Nav */}
-                    <nav className="flex-1 space-y-6 overflow-y-auto no-scrollbar">
-                        <div>
-                            <PrefetchLink
-                                href="/campaigns/new"
-                                className={`group relative inline-flex items-center justify-center gap-2 ${isSidebarCollapsed ? 'h-10 w-10 px-0' : 'px-5 py-3'} rounded-xl font-medium transition-all shadow-lg shadow-primary-900/20 overflow-hidden`}
-                            >
-                                <div className="absolute inset-0 bg-primary-600 group-hover:bg-primary-500 transition-colors"></div>
-                                <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
-                                <Plus size={16} className="relative z-10 text-white" />
-                                {!isSidebarCollapsed && <span className="relative z-10 text-white">Nova Campanha</span>}
-                            </PrefetchLink>
-                        </div>
-
-                        <div className="space-y-1">
-                            {!isSidebarCollapsed && (
-                                <p className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Menu</p>
-                            )}
-                            {navItems.map((item) => (
-                                <SidebarItem
-                                    key={item.path}
-                                    href={item.path}
-                                    icon={item.icon}
-                                    label={item.label}
-                                    isActive={pathname === item.path}
-                                    collapsed={isSidebarCollapsed}
-                                    onClick={() => setIsMobileMenuOpen(false)}
-                                    onMouseEnter={() => prefetchRoute(item.path)}
-                                />
-                            ))}
-                        </div>
-                    </nav>
-
-                    {/* User Profile */}
-                    <div className="pt-4 mt-4 border-t border-white/5">
-                        <button
-                            onClick={handleLogout}
-                            disabled={isLoggingOut}
-                            className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} p-3 rounded-xl hover:bg-white/5 cursor-pointer transition-colors border border-transparent hover:border-white/5`}
-                            title="Sair"
-                        >
-                            <div className="w-9 h-9 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center overflow-hidden">
-                                <span className="text-lg font-bold text-primary-400">
-                                    {companyName?.charAt(0)?.toUpperCase() || 'S'}
-                                </span>
-                            </div>
-                            {!isSidebarCollapsed && (
-                                <div className="flex-1 min-w-0 text-left">
-                                    <p className="text-sm font-medium text-white truncate">{companyName || 'SmartZap'}</p>
-                                    <p className="text-xs text-gray-500 truncate">Administrador</p>
-                                </div>
-                            )}
-                            {isLoggingOut ? (
-                                <div className="w-4 h-4 border-2 border-gray-500 border-t-white rounded-full animate-spin" />
-                            ) : (
-                                <LogOut size={16} className="text-gray-500 hover:text-white transition-colors" />
-                            )}
-                        </button>
-
-                        {!isSidebarCollapsed && (
-                            <div className="mt-2 text-[10px] text-gray-700 text-center font-mono">
-                                v{process.env.NEXT_PUBLIC_APP_VERSION}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </aside>
+            {Sidebar}
 
             {/* Main Content */}
             <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
@@ -787,7 +667,10 @@ export function DashboardShell({
                     <div className="flex items-center">
                         <button
                             className="lg:hidden p-2 text-gray-400 mr-4"
-                            onClick={() => setIsMobileMenuOpen(true)}
+                            onClick={() => {
+                                setIsSidebarHidden(false)
+                                setIsMobileMenuOpen(true)
+                            }}
                         >
                             <Menu size={24} />
                         </button>

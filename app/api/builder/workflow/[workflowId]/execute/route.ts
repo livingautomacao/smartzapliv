@@ -39,6 +39,42 @@ export const { POST } = serve<BuilderWorkflowInput>(async (context) => {
     };
   }
 
+  const triggerNode = workflow.nodes.find((node) => node.data.type === "trigger");
+  const triggerType = triggerNode?.data.config?.triggerType as
+    | string
+    | undefined;
+  const inboundMessage = input?.message || "";
+
+  if (triggerType === "Keywords") {
+    const keywordListRaw = triggerNode?.data.config?.keywordList as
+      | string
+      | undefined;
+    const keywords = (keywordListRaw || "")
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const normalizedMessage = inboundMessage.toLowerCase();
+
+    if (!normalizedMessage) {
+      return {
+        executionId: nanoid(),
+        status: "skipped",
+        output: { reason: "missing_message" },
+      };
+    }
+
+    const matched = keywords.some((keyword) =>
+      normalizedMessage.includes(keyword.toLowerCase())
+    );
+    if (!matched) {
+      return {
+        executionId: nanoid(),
+        status: "skipped",
+        output: { reason: "keyword_not_matched" },
+      };
+    }
+  }
+
   const actions = workflow.nodes.filter((node) => node.data.type === "action");
   if (actions.length === 0) {
     return {

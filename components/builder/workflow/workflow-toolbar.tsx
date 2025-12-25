@@ -387,6 +387,7 @@ type ExecuteTestWorkflowParams = {
   pollingIntervalRef: React.MutableRefObject<NodeJS.Timeout | null>;
   setIsExecuting: (value: boolean) => void;
   setSelectedExecutionId: (value: string | null) => void;
+  input?: Record<string, unknown>;
 };
 
 async function executeTestWorkflow({
@@ -396,6 +397,7 @@ async function executeTestWorkflow({
   pollingIntervalRef,
   setIsExecuting,
   setSelectedExecutionId,
+  input,
 }: ExecuteTestWorkflowParams) {
   // Set all nodes to idle first
   updateNodesStatus(nodes, updateNodeData, "idle");
@@ -414,7 +416,7 @@ async function executeTestWorkflow({
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ input: {} }),
+      body: JSON.stringify({ input: input || {} }),
     });
 
     if (!response.ok) {
@@ -556,6 +558,36 @@ function useWorkflowHandlers({
     setEdges(edges.map((edge) => ({ ...edge, selected: false })));
     setSelectedNodeId(null);
 
+    let input: Record<string, unknown> | undefined;
+    const triggerNode = nodes.find((node) => node.data.type === "trigger");
+    const triggerType = triggerNode?.data.config?.triggerType as
+      | string
+      | undefined;
+
+    if (triggerType === "Manual") {
+      const to = window.prompt("Recipient phone (E.164)", "");
+      if (!to) {
+        toast.error("Recipient is required for manual runs");
+        return;
+      }
+
+      const firstMessageNode = nodes.find(
+        (node) => node.data.type === "action"
+      );
+      const defaultMessage = firstMessageNode?.data.config?.message as
+        | string
+        | undefined;
+      const message = window.prompt(
+        "Message (optional)",
+        defaultMessage || ""
+      );
+
+      input = { to };
+      if (message) {
+        input.message = message;
+      }
+    }
+
     setIsExecuting(true);
     await executeTestWorkflow({
       workflowId: currentWorkflowId,
@@ -564,6 +596,7 @@ function useWorkflowHandlers({
       pollingIntervalRef,
       setIsExecuting,
       setSelectedExecutionId,
+      input,
     });
     // Don't set executing to false here - let polling handle it
   };
