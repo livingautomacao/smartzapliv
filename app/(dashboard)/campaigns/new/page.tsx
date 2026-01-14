@@ -1173,6 +1173,13 @@ export default function CampaignsNewRealPage() {
     })
   }, [flattenedButtons, previewContact, templateButtonVars, templateSpec])
 
+  // Verifica se o template tem variáveis para preencher (header, body ou buttons dinâmicos)
+  const hasTemplateVariables =
+    templateVars.header.length > 0 ||
+    templateVars.body.length > 0 ||
+    buttonAudit.some((b: any) => b.kind === 'url' && b.isDynamic) ||
+    !!templateSpecError
+
   const missingTemplateVars = useMemo(() => {
     // Importante: no passo 1, a regra é "preencher todos os campos obrigatórios".
     // NÃO validamos se a variável dinâmica existe no contato de teste aqui.
@@ -1557,7 +1564,7 @@ export default function CampaignsNewRealPage() {
                 </div>
               )}
 
-              {templateSelected && (
+              {templateSelected && hasTemplateVariables && (
                 <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-6 shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
                   <div className="flex items-start gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-200">
