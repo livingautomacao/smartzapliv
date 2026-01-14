@@ -44,32 +44,59 @@ export const useCampaignDetailsController = () => {
   const WARMUP_DURATION_MS = 30_000 // 30 segundos
   const WARMUP_INTERVAL_MS = 3_000 // polling a cada 3s durante warmup
 
+  // Reset warmup quando ID muda (ex: temp_xxx → id_real)
   useEffect(() => {
+    console.log('[CampaignDetails] ID mudou, resetando warmup para:', id)
+    mountedAtRef.current = Date.now()
+    setWarmupTick(0)
+  }, [id])
+
+  useEffect(() => {
+    // Não faz polling para IDs temporários (queries estão desabilitadas)
+    if (!id || id.startsWith('temp_')) {
+      console.log('[CampaignDetails] Skipping warmup para ID temporário:', id)
+      return
+    }
+
+    console.log('[CampaignDetails] Warmup polling iniciado para campanha:', id)
     const interval = setInterval(() => {
       const elapsed = Date.now() - mountedAtRef.current
       if (elapsed < WARMUP_DURATION_MS) {
-        setWarmupTick((t) => t + 1) // força re-render para recalcular isInWarmupPeriod
+        console.log('[CampaignDetails] Warmup tick - elapsed:', elapsed, 'ms')
+        setWarmupTick((t) => t + 1)
       } else {
+        console.log('[CampaignDetails] Warmup expirou após 30s, parando polling')
         clearInterval(interval)
       }
     }, WARMUP_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [])
+  }, [id])
 
   const isInWarmupPeriod = useMemo(() => {
     void warmupTick // dependency para forçar recálculo
-    return Date.now() - mountedAtRef.current < WARMUP_DURATION_MS
+    const inWarmup = Date.now() - mountedAtRef.current < WARMUP_DURATION_MS
+    console.log('[CampaignDetails] isInWarmupPeriod:', inWarmup, '- tick:', warmupTick)
+    return inWarmup
   }, [warmupTick])
+
+  // Log do refetchInterval atual para debug
+  const currentRefetchInterval = isInWarmupPeriod ? WARMUP_INTERVAL_MS : false
+  console.log('[CampaignDetails] refetchInterval atual:', currentRefetchInterval)
 
   // Fetch campaign data (com warmup polling para capturar transição DRAFT → SENDING)
   const campaignQuery = useQuery<Campaign | undefined>({
     queryKey: ['campaign', id],
-    queryFn: () => campaignService.getById(id!),
+    queryFn: async () => {
+      console.log('[CampaignDetails] Fetching campaign:', id)
+      const result = await campaignService.getById(id!)
+      console.log('[CampaignDetails] Campaign fetched - status:', result?.status)
+      return result
+    },
     enabled: !!id && !id.startsWith('temp_'),
     staleTime: 5000,
     // Warmup polling: nos primeiros 30s, fazemos polling a cada 3s para capturar
     // a transição DRAFT → SENDING. Depois disso, Realtime + backup polling assumem.
-    refetchInterval: isInWarmupPeriod ? WARMUP_INTERVAL_MS : false,
+    refetchInterval: currentRefetchInterval,
     select: (fresh) => {
       const merged = mergeCampaignCountersMonotonic(lastCampaignRef.current, fresh)
       lastCampaignRef.current = merged
