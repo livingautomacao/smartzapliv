@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AISettings } from './AISettings';
 import { TestContactPanel } from './TestContactPanel';
 import { AutoSuppressionPanel } from './AutoSuppressionPanel';
 import { WorkflowExecutionPanel } from './WorkflowExecutionPanel';
@@ -48,13 +47,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   onTestConnection,
   isTestingConnection,
-
-  // AI Props
-  aiSettings,
-  aiSettingsLoading,
-  saveAIConfig,
-  removeAIKey,
-  isSavingAI,
 
   // Meta App
   metaApp,
@@ -136,17 +128,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           isEditing={isEditing}
           onToggleEdit={() => setIsEditing((v) => !v)}
         />
-
-        {/* AI Settings Section - New! */}
-        {settings.isConnected && saveAIConfig && (
-          <AISettings
-            settings={aiSettings}
-            isLoading={!!aiSettingsLoading}
-            onSave={saveAIConfig}
-            onRemoveKey={removeAIKey}
-            isSaving={!!isSavingAI}
-          />
-        )}
 
         {/* Meta App (opcional) — debug_token e diagnóstico avançado */}
         {settings.isConnected && (

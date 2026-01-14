@@ -192,13 +192,6 @@ export interface SettingsViewProps {
   onTestConnection?: () => void;
   isTestingConnection?: boolean;
 
-  // AI Settings
-  aiSettings?: AISettingsInfo;
-  aiSettingsLoading?: boolean;
-  saveAIConfig?: SaveAIConfigFn;
-  removeAIKey?: (provider: 'google' | 'openai' | 'anthropic') => Promise<void>;
-  isSavingAI?: boolean;
-
   // Meta App
   metaApp?: MetaAppInfo | null;
   metaAppLoading?: boolean;

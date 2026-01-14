@@ -79,12 +79,6 @@ export default function SettingsPage() {
             availableDomains={controller.availableDomains}
 
             webhookPath={controller.webhookPath}
-            // AI Settings
-            aiSettings={controller.aiSettings}
-            aiSettingsLoading={controller.aiSettingsLoading}
-            saveAIConfig={controller.saveAIConfig}
-            removeAIKey={controller.removeAIKey}
-            isSavingAI={controller.isSavingAI}
 
             // Meta App (opcional)
             metaApp={controller.metaApp}
