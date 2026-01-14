@@ -24,9 +24,9 @@ interface PhoneNumberCardProps {
   cardColor: CardColor;
   computedWebhookUrl?: string;
   isSavingOverride: boolean;
-  onSetZapflowWebhook: (phoneId: string) => Promise<void>;
-  onRemoveOverride: (phoneId: string) => Promise<void>;
-  onSetCustomOverride: (phoneId: string, url: string) => Promise<void>;
+  onSetZapflowWebhook: (phoneId: string) => Promise<boolean | void>;
+  onRemoveOverride: (phoneId: string) => Promise<boolean | void>;
+  onSetCustomOverride: (phoneId: string, url: string) => Promise<boolean | void>;
 }
 
 export function PhoneNumberCard({

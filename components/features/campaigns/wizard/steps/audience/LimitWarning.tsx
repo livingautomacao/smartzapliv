@@ -41,7 +41,7 @@ export function LimitWarning({
         </div>
       </div>
 
-      {/* Solutions */
+      {/* Solutions */}
       <div className="space-y-2">
         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
           O que você pode fazer:
