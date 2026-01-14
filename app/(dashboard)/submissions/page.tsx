@@ -30,6 +30,8 @@ export default function SubmissionsPage() {
       controller={controller}
       title={title}
       description={description}
+      campaignId={campaignId}
+      flowId={flowId}
     />
   )
 }

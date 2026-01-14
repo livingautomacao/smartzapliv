@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Search, ChevronLeft, ChevronRight, Loader2, Inbox, Phone, Calendar, FileText, User, Megaphone } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Loader2, Inbox, Phone, Calendar, FileText, User, Megaphone, Download } from 'lucide-react'
 import { Page, PageHeader, PageTitle, PageDescription } from '@/components/ui/page'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,8 @@ interface SubmissionsViewProps {
   controller: SubmissionsController
   title?: string
   description?: string
+  campaignId?: string
+  flowId?: string
 }
 
 function SubmissionCard({
@@ -147,6 +149,8 @@ export function SubmissionsView({
   controller,
   title = 'Submissões',
   description = 'Respostas dos formulários MiniApp',
+  campaignId,
+  flowId,
 }: SubmissionsViewProps) {
   const {
     submissions,
@@ -165,6 +169,16 @@ export function SubmissionsView({
     formatPhone,
   } = controller
 
+  // Monta URL de exportação com filtros atuais
+  const exportUrl = React.useMemo(() => {
+    const params = new URLSearchParams()
+    if (campaignId) params.set('campaignId', campaignId)
+    if (flowId) params.set('flowId', flowId)
+    if (search.trim()) params.set('search', search.trim())
+    const queryString = params.toString()
+    return `/api/submissions/export.csv${queryString ? `?${queryString}` : ''}`
+  }, [campaignId, flowId, search])
+
   return (
     <Page>
       <PageHeader>
@@ -172,13 +186,23 @@ export function SubmissionsView({
           <PageTitle>{title}</PageTitle>
           <PageDescription>{description}</PageDescription>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900/60 border border-white/10">
             <FileText className="w-4 h-4 text-emerald-400" />
             <span className="text-sm text-gray-300">
               <span className="font-semibold text-white">{total}</span> submissões
             </span>
           </div>
+          {total > 0 && (
+            <a
+              href={exportUrl}
+              download
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Exportar CSV
+            </a>
+          )}
         </div>
       </PageHeader>
 
