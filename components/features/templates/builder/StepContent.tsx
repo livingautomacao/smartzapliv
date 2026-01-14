@@ -1,0 +1,679 @@
+'use client'
+
+import React from 'react'
+import Image from 'next/image'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Code,
+  Bold,
+  Italic,
+  Strikethrough,
+  Plus,
+  Loader2,
+  FileText,
+  Upload,
+  CheckCircle2,
+  Trash2,
+} from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { cn } from '@/lib/utils'
+
+type Spec = any
+
+type HeaderFormat = 'TEXT' | 'IMAGE' | 'VIDEO' | 'GIF' | 'DOCUMENT' | 'LOCATION'
+
+type HeaderMediaPreview = {
+  url: string
+  format: HeaderFormat
+  name: string
+  mimeType: string
+  size: number
+}
+
+type NamedTokenChecks = {
+  invalid: string[]
+  duplicates: string[]
+} | null
+
+export interface StepContentProps {
+  spec: Spec
+  header: any
+  update: (patch: Partial<Spec>) => void
+  updateHeader: (patch: any) => void
+  updateFooter: (patch: any) => void
+  variableMode: 'positional' | 'named'
+  addVariable: (target: 'header' | 'body') => void
+  applyBodyFormat: (kind: 'bold' | 'italic' | 'strike' | 'code') => void
+  bodyRef: React.RefObject<HTMLTextAreaElement | null>
+  headerTextRef: React.RefObject<HTMLInputElement | null>
+  footerRef: React.RefObject<HTMLInputElement | null>
+  // Validation states
+  headerType: HeaderFormat | 'NONE'
+  headerText: string
+  bodyText: string
+  footerText: string
+  headerTextCount: number
+  bodyTextCount: number
+  footerTextCount: number
+  bodyMaxLength: number
+  headerVariableCount: number
+  isHeaderVariableValid: boolean
+  headerLengthExceeded: boolean
+  headerTextMissing: boolean
+  bodyLengthExceeded: boolean
+  footerLengthExceeded: boolean
+  isHeaderFormatValid: boolean
+  footerHasVariables: boolean
+  headerEdgeParameter: { starts: boolean; ends: boolean }
+  bodyEdgeParameter: { starts: boolean; ends: boolean }
+  positionalHeaderInvalid: string[]
+  positionalBodyInvalid: string[]
+  positionalHeaderMissing: number[]
+  positionalBodyMissing: number[]
+  hasInvalidNamed: boolean
+  hasDuplicateNamed: boolean
+  namedHeaderChecks: NamedTokenChecks
+  namedBodyChecks: NamedTokenChecks
+  namedFooterChecks: NamedTokenChecks
+  isMarketingCategory: boolean
+  isLimitedTimeOffer: boolean
+  ltoHeaderInvalid: boolean
+  ltoFooterInvalid: boolean
+  canShowMediaSample: boolean
+  headerMediaHandleValue: string
+  isHeaderMediaHandleMissing: boolean
+  // Media upload
+  headerMediaPreview: HeaderMediaPreview | null
+  setHeaderMediaPreview: React.Dispatch<React.SetStateAction<HeaderMediaPreview | null>>
+  headerMediaFileInputRef: React.RefObject<HTMLInputElement | null>
+  isUploadingHeaderMedia: boolean
+  uploadHeaderMediaError: string | null
+  uploadHeaderMedia: (file: File) => Promise<void>
+  headerMediaAccept: (format: HeaderFormat | 'NONE') => string
+  formatBytes: (bytes: number) => string
+  // Sanitization
+  sanitizePlaceholdersByMode: (text: string, mode: 'positional' | 'named') => string
+  stripAllPlaceholders: (text: string) => string
+  defaultBodyExamples: (text: string) => string[][] | undefined
+  notifySanitized: () => void
+  // Named variable dialog
+  namedVarDialogOpen: boolean
+  setNamedVarDialogOpen: React.Dispatch<React.SetStateAction<boolean>>
+  namedVarName: string
+  setNamedVarName: React.Dispatch<React.SetStateAction<string>>
+  namedVarError: string | null
+  setNamedVarError: React.Dispatch<React.SetStateAction<string | null>>
+  confirmNamedVariable: () => void
+}
+
+const panelClass = 'rounded-2xl border border-white/10 bg-zinc-900/60 shadow-[0_12px_30px_rgba(0,0,0,0.35)]'
+
+export function StepContent({
+  spec,
+  header,
+  update,
+  updateHeader,
+  updateFooter,
+  variableMode,
+  addVariable,
+  applyBodyFormat,
+  bodyRef,
+  headerTextRef,
+  footerRef,
+  headerType,
+  headerText,
+  bodyText,
+  footerText,
+  headerTextCount,
+  bodyTextCount,
+  footerTextCount,
+  bodyMaxLength,
+  headerVariableCount,
+  isHeaderVariableValid,
+  headerLengthExceeded,
+  headerTextMissing,
+  bodyLengthExceeded,
+  footerLengthExceeded,
+  isHeaderFormatValid,
+  footerHasVariables,
+  headerEdgeParameter,
+  bodyEdgeParameter,
+  positionalHeaderInvalid,
+  positionalBodyInvalid,
+  positionalHeaderMissing,
+  positionalBodyMissing,
+  hasInvalidNamed,
+  hasDuplicateNamed,
+  namedHeaderChecks,
+  namedBodyChecks,
+  namedFooterChecks,
+  isMarketingCategory,
+  isLimitedTimeOffer,
+  ltoHeaderInvalid,
+  ltoFooterInvalid,
+  canShowMediaSample,
+  headerMediaHandleValue,
+  isHeaderMediaHandleMissing,
+  headerMediaPreview,
+  setHeaderMediaPreview,
+  headerMediaFileInputRef,
+  isUploadingHeaderMedia,
+  uploadHeaderMediaError,
+  uploadHeaderMedia,
+  headerMediaAccept,
+  formatBytes,
+  sanitizePlaceholdersByMode,
+  stripAllPlaceholders,
+  defaultBodyExamples,
+  notifySanitized,
+  namedVarDialogOpen,
+  setNamedVarDialogOpen,
+  namedVarName,
+  setNamedVarName,
+  namedVarError,
+  setNamedVarError,
+  confirmNamedVariable,
+}: StepContentProps) {
+  return (
+    <>
+      <div className={`${panelClass} p-5 space-y-2 min-h-140`}>
+        <div>
+          <div className="text-base font-semibold text-white">Conteudo</div>
+          <div className="text-xs text-gray-400 mt-1">
+            Adicione um cabecalho, corpo de texto e rodape para o seu modelo. A Meta analisa variaveis e conteudo antes da aprovacao.
+          </div>
+        </div>
+        {hasInvalidNamed || hasDuplicateNamed || (positionalHeaderInvalid.length > 0) || (positionalBodyInvalid.length > 0) || footerHasVariables ? (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="border-white/10 bg-zinc-950/40 hover:bg-white/5 h-8 px-3 text-xs"
+              onClick={() => {
+                const next: Partial<Spec> = {}
+                if (headerType === 'TEXT') {
+                  const cleanedHeader = sanitizePlaceholdersByMode(headerText, variableMode)
+                  if (cleanedHeader !== headerText) {
+                    next.header = { ...(header || { format: 'TEXT' }), format: 'TEXT', text: cleanedHeader, example: header?.example ?? null }
+                    notifySanitized()
+                  }
+                }
+                const cleanedBody = sanitizePlaceholdersByMode(bodyText, variableMode)
+                if (cleanedBody !== bodyText) {
+                  const example = defaultBodyExamples(cleanedBody)
+                  next.body = { ...(spec.body || {}), text: cleanedBody, example: example ? { body_text: example } : undefined }
+                  notifySanitized()
+                }
+                if (spec.footer?.text) {
+                  const cleanedFooter = stripAllPlaceholders(footerText)
+                  if (cleanedFooter !== footerText) {
+                    next.footer = { ...(spec.footer || {}), text: cleanedFooter }
+                    notifySanitized()
+                  }
+                }
+                if (Object.keys(next).length) update(next)
+              }}
+            >
+              Limpar variaveis invalidas
+            </Button>
+          </div>
+        ) : null}
+
+        {/* CABECALHO */}
+        <div className="pt-1">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold text-white">Cabecalho <span className="text-xs text-gray-500 font-normal">* Opcional</span></div>
+            {headerType !== 'NONE' ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 px-2 text-gray-400 hover:text-white hover:bg-white/5"
+                onClick={() => update({ header: null })}
+              >
+                Remover
+              </Button>
+            ) : null}
+          </div>
+
+          {headerType === 'NONE' ? (
+            <div className="mt-2 flex items-center justify-between rounded-xl border border-white/10 bg-zinc-950/40 p-2">
+              <div className="text-xs text-gray-400">Sem cabecalho configurado.</div>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/10 bg-zinc-950/40 hover:bg-white/5"
+                onClick={() =>
+                  updateHeader(
+                    isLimitedTimeOffer
+                      ? { format: 'IMAGE', example: { header_handle: [''] } }
+                      : { format: 'TEXT', text: '', example: null },
+                  )
+                }
+              >
+                Adicionar cabecalho
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-300">Tipo</label>
+                <Select
+                  value={headerType}
+                  onValueChange={(v) => {
+                    const format = v as HeaderFormat | 'NONE'
+                    if (format === 'NONE') {
+                      update({ header: null })
+                      return
+                    }
+                    if (format === 'TEXT') updateHeader({ format: 'TEXT', text: '', example: null })
+                    else if (format === 'LOCATION') updateHeader({ format: 'LOCATION' })
+                    else updateHeader({ format, example: { header_handle: [''] } })
+                  }}
+                >
+                  <SelectTrigger className="w-full bg-zinc-950/40 border-white/10 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">Nenhum</SelectItem>
+                    <SelectItem value="TEXT" disabled={isLimitedTimeOffer}>Texto</SelectItem>
+                    <SelectItem value="IMAGE">Imagem</SelectItem>
+                    <SelectItem value="VIDEO">Video</SelectItem>
+                    <SelectItem value="GIF" disabled={!isMarketingCategory || isLimitedTimeOffer}>GIF (mp4)</SelectItem>
+                    <SelectItem value="DOCUMENT" disabled={isLimitedTimeOffer}>Documento</SelectItem>
+                    <SelectItem value="LOCATION" disabled={isLimitedTimeOffer}>Localizacao</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {headerType === 'GIF' ? (
+                  <p className="text-xs text-gray-500">
+                    Observacao: GIF no header e documentado como disponivel para Marketing Messages (GIF = mp4, max 3.5MB).
+                  </p>
+                ) : null}
+                {!isMarketingCategory ? (
+                  <p className="text-xs text-gray-500">
+                    Dica: a opcao GIF fica disponivel apenas em templates MARKETING.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {!isHeaderFormatValid ? (
+            <p className="text-xs text-amber-300 mt-1">Tipo de cabecalho invalido para templates.</p>
+          ) : null}
+          {ltoHeaderInvalid ? (
+            <p className="text-xs text-amber-300 mt-1">Limited Time Offer aceita apenas cabecalho IMAGE ou VIDEO.</p>
+          ) : null}
+
+          {headerType === 'TEXT' ? (
+            <div className="mt-1 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-gray-300">Texto</label>
+                <div className="text-xs text-gray-500">{headerTextCount}/60</div>
+              </div>
+              <Input
+                ref={headerTextRef as any}
+                value={headerText}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  const cleaned = sanitizePlaceholdersByMode(raw, variableMode)
+                  if (cleaned !== raw) notifySanitized()
+                  updateHeader({ ...header, format: 'TEXT', text: cleaned })
+                }}
+                className="bg-zinc-950/40 border-white/10 text-white"
+                placeholder="Texto do cabecalho"
+                maxLength={60}
+              />
+              {headerLengthExceeded ? (
+                <p className="text-xs text-amber-300">Cabecalho excede 60 caracteres.</p>
+              ) : null}
+              {!isHeaderVariableValid ? (
+                <p className="text-xs text-amber-300">O cabecalho permite apenas 1 variavel.</p>
+              ) : null}
+              {namedHeaderChecks?.invalid.length ? (
+                <p className="text-xs text-amber-300">Variaveis devem ser minusculas com underscore (ex: first_name).</p>
+              ) : null}
+              {namedHeaderChecks?.duplicates.length ? (
+                <p className="text-xs text-amber-300">Nomes de variavel no cabecalho devem ser unicos.</p>
+              ) : null}
+              {headerTextMissing ? (
+                <p className="text-xs text-amber-300">Cabecalho de texto e obrigatorio.</p>
+              ) : null}
+              {positionalHeaderInvalid.length ? (
+                <p className="text-xs text-amber-300">
+                  No modo numerico, use apenas {'{{1}}'}, {'{{2}}'}...
+                </p>
+              ) : null}
+              {positionalHeaderMissing.length ? (
+                <p className="text-xs text-amber-300">
+                  Sequencia posicional deve comecar em {'{{1}}'} e nao ter buracos.
+                </p>
+              ) : null}
+              {headerEdgeParameter.starts || headerEdgeParameter.ends ? (
+                <p className="text-xs text-amber-300">O cabecalho nao pode comecar nem terminar com variavel.</p>
+              ) : null}
+              <div className="flex items-center justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => addVariable('header')}
+                  disabled={headerVariableCount >= 1}
+                  className="h-8 px-2 text-gray-300 hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  <Plus className="w-4 h-4" />
+                  Adicionar variavel
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {canShowMediaSample ? (
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-gray-300">Midia do cabecalho</label>
+
+                <div className="flex items-center gap-2">
+                  {isUploadingHeaderMedia ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-zinc-950/40 px-2 py-1 text-[11px] text-gray-200">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Enviando...
+                    </span>
+                  ) : headerMediaHandleValue ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Pronto
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* input escondido (fica mais "app-like") */}
+              <input
+                ref={headerMediaFileInputRef as any}
+                type="file"
+                accept={headerMediaAccept(headerType)}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.currentTarget.files?.[0]
+                  // Permite selecionar o mesmo arquivo novamente
+                  e.currentTarget.value = ''
+                  if (!file) return
+
+                  // Preview local (como a Meta faz). O handle nao e um link renderizavel.
+                  const format = headerType as HeaderFormat
+                  try {
+                    const url = URL.createObjectURL(file)
+                    setHeaderMediaPreview({
+                      url,
+                      format,
+                      name: file.name,
+                      mimeType: file.type || '',
+                      size: file.size,
+                    })
+                  } catch {
+                    // Ignore: preview e opcional.
+                  }
+
+                  void uploadHeaderMedia(file)
+                }}
+              />
+
+              <div className="rounded-xl border border-white/10 bg-zinc-950/40 p-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-white truncate">
+                    {headerMediaPreview?.name || 'Escolha um arquivo'}
+                  </div>
+                  <div className="mt-0.5 text-xs text-gray-400">
+                    {headerMediaPreview ? (
+                      `${formatBytes(headerMediaPreview.size)} * ${String(headerType).toLowerCase()}`
+                    ) : (
+                      'Ele vai aparecer na previa a direita.'
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant={headerMediaPreview ? 'outline' : 'default'}
+                    disabled={isUploadingHeaderMedia}
+                    className={cn(
+                      headerMediaPreview
+                        ? 'border-white/10 bg-zinc-950/40 hover:bg-white/5'
+                        : 'bg-emerald-500 hover:bg-emerald-400 text-black',
+                    )}
+                    onClick={() => headerMediaFileInputRef.current?.click()}
+                  >
+                    <Upload className="w-4 h-4" />
+                    {headerMediaPreview ? 'Trocar' : 'Escolher'}
+                  </Button>
+
+                  {headerMediaPreview ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={isUploadingHeaderMedia}
+                      className="text-gray-300 hover:bg-white/5"
+                      onClick={() => {
+                        setHeaderMediaPreview(null)
+                        updateHeader({
+                          ...header,
+                          format: headerType as HeaderFormat,
+                          example: {
+                            ...(header?.example || {}),
+                            header_handle: [''],
+                          },
+                        })
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Remover
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
+              {uploadHeaderMediaError ? (
+                <p className="text-xs text-amber-300">{uploadHeaderMediaError}</p>
+              ) : null}
+
+              {isHeaderMediaHandleMissing ? (
+                <p className="text-xs text-amber-300">
+                  {headerMediaPreview ? 'Finalize o envio da midia para continuar.' : 'Selecione um arquivo para o cabecalho.'}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        {/* CORPO */}
+        <div className="pt-1">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold text-white">Corpo</div>
+            <div className="text-xs text-gray-500">{bodyTextCount}/{bodyMaxLength}</div>
+          </div>
+
+          <div className="mt-2 rounded-xl border border-white/10 bg-zinc-950/40">
+            <div className="p-2">
+              <Textarea
+                ref={bodyRef as any}
+                value={bodyText}
+                onChange={(e) => {
+                  const raw = e.target.value
+                  const cleaned = sanitizePlaceholdersByMode(raw, variableMode)
+                  if (cleaned !== raw) notifySanitized()
+                  const example = defaultBodyExamples(cleaned)
+                  update({ body: { ...(spec.body || {}), text: cleaned, example: example ? { body_text: example } : undefined } })
+                }}
+                className="bg-transparent border-none text-white min-h-24 focus-visible:ring-0 focus-visible:ring-offset-0"
+                placeholder="Digite o corpo (obrigatorio)"
+                maxLength={bodyMaxLength}
+              />
+            </div>
+
+            <div className="flex items-center gap-1 px-2 py-1.5 border-t border-white/10">
+              <Button type="button" variant="ghost" onClick={() => applyBodyFormat('bold')} className="h-7 px-2 text-gray-200 hover:bg-white/5">
+                <Bold className="w-4 h-4" />
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => applyBodyFormat('italic')} className="h-7 px-2 text-gray-200 hover:bg-white/5">
+                <Italic className="w-4 h-4" />
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => applyBodyFormat('strike')} className="h-7 px-2 text-gray-200 hover:bg-white/5">
+                <Strikethrough className="w-4 h-4" />
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => applyBodyFormat('code')} className="h-7 px-2 text-gray-200 hover:bg-white/5">
+                <Code className="w-4 h-4" />
+              </Button>
+
+              <div className="flex-1" />
+
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => addVariable('body')}
+                className="h-7 px-2 text-gray-200 hover:bg-white/5"
+              >
+                <Plus className="w-4 h-4" />
+                Adicionar variavel
+              </Button>
+            </div>
+          </div>
+
+          {namedBodyChecks?.invalid.length ? (
+            <div className="mt-2 text-xs text-amber-300">Use apenas minusculas e underscore nas variaveis do corpo.</div>
+          ) : null}
+          {namedBodyChecks?.duplicates.length ? (
+            <div className="mt-2 text-xs text-amber-300">Nomes de variavel no corpo devem ser unicos.</div>
+          ) : null}
+          {positionalBodyInvalid.length ? (
+            <div className="mt-2 text-xs text-amber-300">
+              No modo numerico, use apenas {'{{1}}'}, {'{{2}}'}...
+            </div>
+          ) : null}
+          {positionalBodyMissing.length ? (
+            <div className="mt-2 text-xs text-amber-300">
+              Sequencia posicional deve comecar em {'{{1}}'} e nao ter buracos.
+            </div>
+          ) : null}
+          {bodyLengthExceeded ? (
+            <div className="mt-2 text-xs text-amber-300">Corpo excede {bodyMaxLength} caracteres.</div>
+          ) : null}
+          {bodyEdgeParameter.starts || bodyEdgeParameter.ends ? (
+            <div className="mt-2 text-xs text-amber-300">O corpo nao pode comecar nem terminar com variavel.</div>
+          ) : null}
+          {!bodyText.trim() ? (
+            <div className="mt-2 text-xs text-amber-300">O corpo e obrigatorio.</div>
+          ) : null}
+        </div>
+
+        {/* RODAPE */}
+        <div className="pt-2">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-semibold text-white">Rodape <span className="text-xs text-gray-500 font-normal">* Opcional</span></div>
+            <div className="text-xs text-gray-500">{footerTextCount}/60</div>
+          </div>
+
+          <div className="mt-2 space-y-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="border-white/10 bg-zinc-950/40 hover:bg-white/5 h-8 px-3"
+                disabled={isLimitedTimeOffer && !spec.footer}
+                onClick={() => updateFooter(spec.footer ? null : { text: '' })}
+              >
+                {spec.footer ? 'Remover rodape' : 'Adicionar rodape'}
+              </Button>
+            </div>
+
+            {isLimitedTimeOffer ? (
+              <div className="text-xs text-amber-300">Limited Time Offer nao permite rodape.</div>
+            ) : null}
+
+            {spec.footer ? (
+              <div className="space-y-2">
+                <Input
+                  ref={footerRef as any}
+                  value={footerText}
+                  onChange={(e) => {
+                    const nextText = stripAllPlaceholders(e.target.value)
+                    if (nextText !== e.target.value) notifySanitized()
+                    updateFooter({ ...(spec.footer || {}), text: nextText })
+                  }}
+                  className="bg-zinc-950/40 border-white/10 text-white"
+                  placeholder="Inserir texto"
+                  maxLength={60}
+                />
+                {footerLengthExceeded ? (
+                  <div className="text-xs text-amber-300">Rodape excede 60 caracteres.</div>
+                ) : null}
+                {footerHasVariables ? (
+                  <div className="text-xs text-amber-300">Rodape nao permite variaveis.</div>
+                ) : null}
+                {namedFooterChecks?.invalid.length ? (
+                  <div className="text-xs text-amber-300">Use apenas minusculas e underscore nas variaveis do rodape.</div>
+                ) : null}
+                {namedFooterChecks?.duplicates.length ? (
+                  <div className="text-xs text-amber-300">Nomes de variavel no rodape devem ser unicos.</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      {/* Named Variable Dialog */}
+      <Dialog open={namedVarDialogOpen} onOpenChange={setNamedVarDialogOpen}>
+        <DialogContent className="sm:max-w-105">
+          <DialogHeader>
+            <DialogTitle>Variavel nomeada</DialogTitle>
+            <DialogDescription>Use apenas minusculas, numeros e underscore.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-300">Nome da variavel</label>
+            <Input
+              value={namedVarName}
+              onChange={(e) => {
+                setNamedVarName(e.target.value)
+                if (namedVarError) setNamedVarError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  confirmNamedVariable()
+                }
+              }}
+              placeholder="ex: first_name"
+              className="bg-zinc-950/40 border-white/10 text-white"
+              autoFocus
+            />
+            {namedVarError ? <p className="text-xs text-amber-300">{namedVarError}</p> : null}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" onClick={() => setNamedVarDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={confirmNamedVariable}>
+              Adicionar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
