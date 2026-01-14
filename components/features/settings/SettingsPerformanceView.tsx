@@ -187,7 +187,11 @@ export function SettingsPerformanceView(props: {
   }, [props.filteredRuns])
 
   React.useEffect(() => {
-    setIsMounted(true)
+    // Aguarda o browser calcular as dimensões do container antes de renderizar o chart
+    const frame = requestAnimationFrame(() => {
+      setIsMounted(true)
+    })
+    return () => cancelAnimationFrame(frame)
   }, [])
 
   return (

@@ -109,7 +109,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ stats, recentCampa
   );
 
   React.useEffect(() => {
-    setIsMounted(true);
+    // Aguarda o browser calcular as dimensões do container antes de renderizar o chart
+    // Isso evita o warning "width(-1) height(-1)" do Recharts
+    const frame = requestAnimationFrame(() => {
+      setIsMounted(true);
+    });
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   return (

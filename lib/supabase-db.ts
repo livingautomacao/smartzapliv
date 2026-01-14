@@ -458,7 +458,8 @@ export const contactDb = {
         }
 
         if (tag && tag !== 'ALL') {
-            query = query.contains('tags', [tag])
+            // Para JSONB arrays, usar operador @> com JSON string (não .contains que usa sintaxe {})
+            query = query.filter('tags', '@>', JSON.stringify([tag]))
         }
 
         let suppressionMap = new Map<string, { reason: string | null; source: string | null; expiresAt: string | null }>()
@@ -565,7 +566,8 @@ export const contactDb = {
         }
 
         if (tag && tag !== 'ALL') {
-            query = query.contains('tags', [tag])
+            // Para JSONB arrays, usar operador @> com JSON string (não .contains que usa sintaxe {})
+            query = query.filter('tags', '@>', JSON.stringify([tag]))
         }
 
         if (status === 'SUPPRESSED') {
