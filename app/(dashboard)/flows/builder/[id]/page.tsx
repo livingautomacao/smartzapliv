@@ -167,17 +167,23 @@ export default function FlowBuilderEditorPage({
   const handleApplyTemplate = React.useCallback(() => {
     const tpl = FLOW_TEMPLATES.find((t) => t.key === selectedTemplateKey)
     if (!tpl) return
-    const form = flowJsonToFormSpec(tpl.flowJson, name || 'MiniApp')
+    // Usa tpl.form se disponível (para templates dinâmicos), senão converte do flowJson
+    const form = tpl.form
+      ? { ...tpl.form, title: name || tpl.form.title }
+      : flowJsonToFormSpec(tpl.flowJson, name || 'MiniApp')
     applyFormSpec(form)
     controller.save({
       spec: { ...(controller.spec as any), form },
-      flowJson: generateFlowJsonFromFormSpec(form),
+      // Para templates dinâmicos, usa o flowJson original
+      flowJson: tpl.isDynamic ? tpl.flowJson : generateFlowJsonFromFormSpec(form),
     })
     setStep(2)
-    toast.success('Modelo aplicado! Ajuste as perguntas.')
+    toast.success(tpl.isDynamic
+      ? 'Template dinâmico aplicado! O agendamento em tempo real será configurado ao publicar.'
+      : 'Modelo aplicado! Ajuste as perguntas.')
   }, [applyFormSpec, controller, name, selectedTemplateKey])
 
-  const handleTemplateHover = React.useCallback((tpl: { flowJson: unknown; key?: string }) => {
+  const handleTemplateHover = React.useCallback((tpl: { flowJson: unknown; key?: string; form?: any; isDynamic?: boolean }) => {
     if (tpl.key) {
       setHoverTemplateKey(tpl.key)
     }
@@ -186,7 +192,10 @@ export default function FlowBuilderEditorPage({
     }
     hoverPreviewTimerRef.current = setTimeout(() => {
       try {
-        const form = flowJsonToFormSpec(tpl.flowJson, name || 'MiniApp')
+        // Usa tpl.form se disponível (para templates dinâmicos)
+        const form = tpl.form
+          ? { ...tpl.form, title: name || tpl.form.title }
+          : flowJsonToFormSpec(tpl.flowJson, name || 'MiniApp')
         setFormPreview({
           title: form?.title || '',
           intro: form?.intro || '',
