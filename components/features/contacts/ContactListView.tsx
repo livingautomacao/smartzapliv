@@ -180,15 +180,14 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
       }
 
       // Build CSV
-      const headers = ['Nome', 'Telefone', 'Email', 'Status', 'Tags', 'Notas', 'Data Criação'];
+      const headers = ['Nome', 'Telefone', 'Email', 'Status', 'Tags', 'Data Criação'];
       const rows = exportContacts.map((c) => [
         c.name || '',
         c.phone || '',
         c.email || '',
         c.status || '',
         Array.isArray(c.tags) ? c.tags.join(';') : '',
-        (c.notes || '').replace(/[\r\n]+/g, ' '),
-        c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '',
+        c.createdAt ? new Date(c.createdAt).toLocaleDateString('pt-BR') : '',
       ]);
 
       const csvContent = [
