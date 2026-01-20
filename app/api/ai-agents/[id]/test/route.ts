@@ -148,8 +148,30 @@ IMPORTANTE: Você DEVE usar a ferramenta "respond" para enviar sua resposta.`
     // Generate response
     const startTime = Date.now()
 
-    // Configure tools - only add fileSearch if agent has a store with files
-    const hasFileSearch = agent.file_search_store_id && indexedFilesCount && indexedFilesCount > 0
+    // Configure tools - validate File Search store before using
+    const { validateFileSearchStore } = await import('@/lib/ai/file-search-store')
+    const { supportsFileSearch } = await import('@/lib/ai/model')
+
+    let hasFileSearch = false
+    let storeValidationMessage = ''
+
+    // Only validate if agent has a store configured and model supports it
+    if (agent.file_search_store_id && supportsFileSearch(modelId)) {
+      console.log(`[ai-agents/test] Validating File Search Store: ${agent.file_search_store_id}`)
+      const validation = await validateFileSearchStore(apiKey, agent.file_search_store_id)
+
+      if (validation.isValid) {
+        hasFileSearch = true
+        storeValidationMessage = validation.message
+        console.log(`[ai-agents/test] Store validated: ${validation.message}`)
+      } else {
+        console.log(`[ai-agents/test] Store validation failed: ${validation.status} - ${validation.message}`)
+        storeValidationMessage = `Store inválido: ${validation.message}`
+      }
+    } else if (agent.file_search_store_id && !supportsFileSearch(modelId)) {
+      storeValidationMessage = `Modelo ${modelId} não suporta File Search`
+      console.log(`[ai-agents/test] ${storeValidationMessage}`)
+    }
 
     // Capture structured response from tool
     let structuredResponse: TestResponse | undefined
@@ -165,11 +187,9 @@ IMPORTANTE: Você DEVE usar a ferramenta "respond" para enviar sua resposta.`
     })
 
     // Use streamText with tools for structured output (AI SDK v6 pattern)
-    // Note: File Search is handled separately if needed, but we prioritize structured output
+    // Note: File Search would need separate implementation due to tool incompatibility
     if (hasFileSearch) {
-      console.log(`[ai-agents/test] Using File Search Store: ${agent.file_search_store_id} with ${indexedFilesCount} files`)
-      // When using file_search with structured output, we run them in sequence
-      // First, let the model search, then respond
+      console.log(`[ai-agents/test] File Search available but using respond tool for structured output`)
     }
 
     const result = streamText({
@@ -204,6 +224,7 @@ IMPORTANTE: Você DEVE usar a ferramenta "respond" para enviar sua resposta.`
       model: modelId,
       knowledge_files_used: indexedFilesCount ?? 0,
       file_search_enabled: hasFileSearch,
+      file_search_status: storeValidationMessage || undefined,
       // Structured output fields
       sentiment: structuredResponse.sentiment,
       confidence: structuredResponse.confidence,

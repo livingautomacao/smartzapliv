@@ -62,11 +62,9 @@ async function checkDatabaseHealth(dbUrl: string): Promise<{
   try {
     await client.connect();
 
-    // Verifica se storage.buckets existe
-    const storageResult = await client.query<{ ready: boolean }>(
-      `SELECT (to_regclass('storage.buckets') IS NOT NULL) as ready`
-    );
-    const storageReady = Boolean(storageResult?.rows?.[0]?.ready);
+    // SmartZap NÃO usa Supabase Storage, então sempre retornamos true
+    // (evita erro de permissão no schema storage com CLI login role)
+    const storageReady = true;
 
     // Verifica se a tabela settings existe (indica schema aplicado)
     const schemaResult = await client.query<{ ready: boolean }>(

@@ -12,7 +12,8 @@ import { createGoogleGenerativeAI, type GoogleGenerativeAIProviderMetadata } fro
 import { createClient } from '@/lib/supabase-server'
 import { withDevTools, isDevToolsActive } from '@/lib/ai/devtools'
 import { DEFAULT_MODEL_ID, supportsFileSearch } from '@/lib/ai/model'
-import { getFileSearchStore } from '@/lib/ai/file-search-store'
+import { validateAndCleanupStore } from '@/lib/ai/file-search-store'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import type { AIAgent, InboxConversation, InboxMessage } from '@/types'
 
 // =============================================================================
@@ -333,37 +334,40 @@ export async function processSupportAgentV2(
   }
 
   // If using File Search, verify the store exists and has documents
-  // IMPORTANT: If verification fails, we MUST disable File Search
+  // IMPORTANT: If verification fails, we MUST disable File Search AND clean up the reference
   let useFileSearch = hasKnowledgeBase && !!agent.file_search_store_id
 
   if (useFileSearch && agent.file_search_store_id) {
-    logger.log('📍 Step 7.1: Verifying File Search store...')
-    try {
-      const store = await getFileSearchStore(apiKey, agent.file_search_store_id)
-      if (!store) {
-        logger.error('File Search store not found', agent.file_search_store_id)
-        logger.log('⚠️ DISABLING File Search - store not found')
-        useFileSearch = false
-      } else {
-        logger.success('File Search store verified', {
-          name: store.name,
-          displayName: store.displayName,
-          activeDocuments: store.activeDocumentsCount,
-          pendingDocuments: store.pendingDocumentsCount,
-          failedDocuments: store.failedDocumentsCount,
-          sizeBytes: store.sizeBytes,
-        })
+    logger.log('📍 Step 7.1: Validating File Search store with auto-cleanup...')
 
-        const activeCount = parseInt(store.activeDocumentsCount || '0', 10)
-        if (activeCount === 0) {
-          logger.log('⚠️ WARNING: Store has no active documents - DISABLING File Search')
-          useFileSearch = false
-        }
-      }
-    } catch (storeErr) {
-      logger.error('Failed to verify File Search store', storeErr)
-      logger.log('⚠️ DISABLING File Search due to verification error')
-      useFileSearch = false
+    const supabaseAdmin = getSupabaseAdmin()
+    const validationResult = await validateAndCleanupStore(
+      apiKey,
+      agent.file_search_store_id,
+      supabaseAdmin,
+      agent.id
+    )
+
+    useFileSearch = validationResult.useFileSearch
+
+    if (validationResult.useFileSearch) {
+      logger.success('File Search store validated', {
+        status: validationResult.validation.status,
+        message: validationResult.validation.message,
+        store: validationResult.validation.store ? {
+          name: validationResult.validation.store.name,
+          activeDocuments: validationResult.validation.store.activeDocumentsCount,
+          pendingDocuments: validationResult.validation.store.pendingDocumentsCount,
+        } : null,
+      })
+    } else {
+      logger.log('⚠️ File Search DISABLED', {
+        status: validationResult.validation.status,
+        message: validationResult.validation.message,
+        error: validationResult.validation.error,
+        cleanupPerformed: validationResult.cleanup?.cleaned || false,
+        cleanupAction: validationResult.cleanup?.action,
+      })
     }
   }
 
@@ -377,7 +381,7 @@ export async function processSupportAgentV2(
     // 1. With File Search: use JSON schema for structured output
     // 2. Without File Search: use respond tool
 
-    if (hasKnowledgeBase && agent.file_search_store_id) {
+    if (useFileSearch && agent.file_search_store_id) {
       logger.log('📍 Step 8: Executing generateText WITH File Search...')
       logger.log('File Search configuration', {
         storeId: agent.file_search_store_id,

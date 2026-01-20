@@ -343,6 +343,230 @@ export async function waitForOperation(
 }
 
 // ============================================================================
+// Store Validation & Health Check
+// ============================================================================
+
+/**
+ * Validation result for a File Search Store
+ */
+export interface StoreValidationResult {
+  /** Whether the store is valid and usable */
+  isValid: boolean
+  /** Status of the store */
+  status: 'valid' | 'not_found' | 'no_documents' | 'permission_denied' | 'error'
+  /** Human-readable message */
+  message: string
+  /** Store details if available */
+  store?: FileSearchStore
+  /** Error details if any */
+  error?: string
+}
+
+/**
+ * Validate a File Search Store
+ *
+ * Checks:
+ * 1. Store exists
+ * 2. Store is accessible (no permission errors)
+ * 3. Store has active documents
+ *
+ * @returns Validation result with status and details
+ */
+export async function validateFileSearchStore(
+  apiKey: string,
+  storeName: string
+): Promise<StoreValidationResult> {
+  try {
+    const response = await fetch(`${BASE_URL}/${storeName}?key=${apiKey}`)
+
+    // Check for 404 - store not found
+    if (response.status === 404) {
+      return {
+        isValid: false,
+        status: 'not_found',
+        message: `File Search Store não encontrado: ${storeName}`,
+      }
+    }
+
+    // Check for 403 - permission denied
+    if (response.status === 403) {
+      const errorText = await response.text()
+      return {
+        isValid: false,
+        status: 'permission_denied',
+        message: 'Sem permissão para acessar o File Search Store',
+        error: errorText,
+      }
+    }
+
+    // Check for other errors
+    if (!response.ok) {
+      const errorText = await response.text()
+      return {
+        isValid: false,
+        status: 'error',
+        message: `Erro ao verificar File Search Store: ${response.status}`,
+        error: errorText,
+      }
+    }
+
+    // Parse store data
+    const store: FileSearchStore = await response.json()
+
+    // Check for active documents
+    const activeCount = parseInt(store.activeDocumentsCount || '0', 10)
+    const pendingCount = parseInt(store.pendingDocumentsCount || '0', 10)
+
+    if (activeCount === 0 && pendingCount === 0) {
+      return {
+        isValid: false,
+        status: 'no_documents',
+        message: 'File Search Store não possui documentos indexados',
+        store,
+      }
+    }
+
+    // Store is valid
+    return {
+      isValid: true,
+      status: 'valid',
+      message: `Store válido com ${activeCount} documento(s) ativo(s)`,
+      store,
+    }
+  } catch (err) {
+    return {
+      isValid: false,
+      status: 'error',
+      message: 'Erro ao validar File Search Store',
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+/**
+ * Result of cleaning up an invalid store
+ */
+export interface StoreCleanupResult {
+  /** Whether cleanup was performed */
+  cleaned: boolean
+  /** What action was taken */
+  action: 'cleared_store_id' | 'no_action' | 'error'
+  /** Human-readable message */
+  message: string
+}
+
+/**
+ * Clean up invalid File Search Store reference from an agent
+ *
+ * When a store no longer exists or is inaccessible, this function:
+ * 1. Sets file_search_store_id to null in the database
+ * 2. Optionally marks knowledge files as needing re-indexing
+ *
+ * @param supabase - Supabase client
+ * @param agentId - Agent ID to clean up
+ * @param reason - Why the cleanup is happening (for logging)
+ */
+export async function cleanupInvalidStoreReference(
+  supabase: ReturnType<typeof import('@/lib/supabase').getSupabaseAdmin>,
+  agentId: string,
+  reason: string
+): Promise<StoreCleanupResult> {
+  if (!supabase) {
+    return {
+      cleaned: false,
+      action: 'error',
+      message: 'Supabase client not available',
+    }
+  }
+
+  try {
+    console.log(`[file-search-store] Cleaning up invalid store for agent ${agentId}: ${reason}`)
+
+    // Clear the file_search_store_id
+    const { error: updateError } = await supabase
+      .from('ai_agents')
+      .update({ file_search_store_id: null })
+      .eq('id', agentId)
+
+    if (updateError) {
+      console.error('[file-search-store] Failed to clear store ID:', updateError)
+      return {
+        cleaned: false,
+        action: 'error',
+        message: `Failed to clear store ID: ${updateError.message}`,
+      }
+    }
+
+    // Mark knowledge files as needing re-indexing
+    const { error: filesError } = await supabase
+      .from('ai_knowledge_files')
+      .update({
+        indexing_status: 'pending',
+        google_file_id: null,
+      })
+      .eq('agent_id', agentId)
+      .eq('indexing_status', 'completed')
+
+    if (filesError) {
+      console.warn('[file-search-store] Failed to reset file status:', filesError)
+      // Don't fail the whole operation for this
+    }
+
+    console.log(`[file-search-store] Cleaned up store reference for agent ${agentId}`)
+
+    return {
+      cleaned: true,
+      action: 'cleared_store_id',
+      message: `Store reference cleared. Reason: ${reason}`,
+    }
+  } catch (err) {
+    console.error('[file-search-store] Cleanup error:', err)
+    return {
+      cleaned: false,
+      action: 'error',
+      message: err instanceof Error ? err.message : 'Unknown error during cleanup',
+    }
+  }
+}
+
+/**
+ * Validate store and auto-cleanup if invalid
+ *
+ * Combines validation and cleanup in one operation.
+ * Returns whether File Search should be used.
+ */
+export async function validateAndCleanupStore(
+  apiKey: string,
+  storeName: string,
+  supabase: ReturnType<typeof import('@/lib/supabase').getSupabaseAdmin>,
+  agentId: string
+): Promise<{
+  useFileSearch: boolean
+  validation: StoreValidationResult
+  cleanup?: StoreCleanupResult
+}> {
+  const validation = await validateFileSearchStore(apiKey, storeName)
+
+  // If valid, no cleanup needed
+  if (validation.isValid) {
+    return { useFileSearch: true, validation }
+  }
+
+  // Store is invalid - clean up the reference
+  const cleanup = await cleanupInvalidStoreReference(
+    supabase,
+    agentId,
+    `${validation.status}: ${validation.message}`
+  )
+
+  return {
+    useFileSearch: false,
+    validation,
+    cleanup,
+  }
+}
+
+// ============================================================================
 // Helper to ensure store exists
 // ============================================================================
 

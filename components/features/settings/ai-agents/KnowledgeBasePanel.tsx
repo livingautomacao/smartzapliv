@@ -32,6 +32,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { AIKnowledgeFile, KnowledgeFileIndexingStatus } from '@/types'
+import { StoreHealthIndicator } from './StoreHealthIndicator'
 
 export interface KnowledgeBasePanelProps {
   agentId: string | null
@@ -185,7 +186,10 @@ export function KnowledgeBasePanel({
                 <FileText className="h-5 w-5 text-blue-400" />
               </div>
               <div>
-                <CardTitle className="text-base">Base de Conhecimento</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2">
+                  Base de Conhecimento
+                  <StoreHealthIndicator agentId={agentId} />
+                </CardTitle>
                 <CardDescription>
                   {files.length} arquivo{files.length !== 1 ? 's' : ''} • {formatFileSize(totalSize)}
                 </CardDescription>
