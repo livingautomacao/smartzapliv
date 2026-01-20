@@ -10,7 +10,7 @@
 import { generateText, tool } from 'ai'
 import { z } from 'zod'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { createClient } from '@/lib/supabase-server'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { withDevTools } from '@/lib/ai/devtools'
 import type { AIAgent, InboxConversation, InboxMessage } from '@/types'
 
@@ -104,7 +104,11 @@ async function persistAILog(data: {
   modelUsed: string
 }): Promise<string | undefined> {
   try {
-    const supabase = await createClient()
+    const supabase = getSupabaseAdmin()
+    if (!supabase) {
+      console.error('[support-agent] Supabase admin client not available')
+      return undefined
+    }
     const { data: log, error } = await supabase
       .from('ai_agent_logs')
       .insert({
@@ -184,6 +188,9 @@ export async function processSupportAgentV2(
       // =======================================================================
       console.log(`[support-agent] Using File Search with store: ${agent.file_search_store_id}`)
       console.log(`[support-agent] Calling Gemini API with prompt: "${inputText.slice(0, 50)}..."`)
+      console.log(`[support-agent] System prompt length: ${agent.system_prompt?.length || 0} chars`)
+
+      const fileSearchStartTime = Date.now()
 
       // File Search funciona melhor com prompt único (mesmo padrão do teste)
       // O histórico da conversa é incluído no system prompt se necessário
@@ -199,8 +206,10 @@ export async function processSupportAgentV2(
         },
         temperature: DEFAULT_TEMPERATURE,
         maxOutputTokens: DEFAULT_MAX_TOKENS,
-        abortSignal: AbortSignal.timeout(30000), // 30s timeout
+        abortSignal: AbortSignal.timeout(25000), // 25s timeout (Vercel max é 30s)
       })
+
+      console.log(`[support-agent] File Search completed in ${Date.now() - fileSearchStartTime}ms`)
 
       console.log(`[support-agent] Gemini API responded, text length: ${result.text?.length ?? 0}`)
 
