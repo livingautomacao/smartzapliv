@@ -1,13 +1,15 @@
 /**
- * Support Agent V2 - RAG com pgvector
+ * Support Agent V2 - Tool-based RAG (Vercel AI SDK pattern)
  *
- * Usa RAG próprio com Supabase pgvector em vez do Google File Search.
- * Isso permite usar `messages[]` normalmente (o File Search só funcionava com `prompt` string).
+ * Usa RAG próprio com Supabase pgvector seguindo o padrão recomendado pela Vercel:
+ * - O LLM recebe uma tool `searchKnowledgeBase` e DECIDE quando usá-la
+ * - Para saudações ("oie") → responde direto, sem buscar
+ * - Para perguntas ("qual o horário?") → chama a tool, depois responde
  *
- * Fluxo:
- * 1. Se tem knowledge base, busca contexto relevante via pgvector
- * 2. Injeta contexto no system prompt
- * 3. Usa generateText com messages[] + respond tool
+ * Isso é mais eficiente que "eager RAG" (sempre buscar) porque:
+ * - Reduz latência em mensagens que não precisam de contexto
+ * - Reduz custos de embedding (menos queries)
+ * - Evita injetar ruído em conversas simples
  */
 
 import { z } from 'zod'
@@ -160,7 +162,7 @@ export async function processSupportAgentV2(
 
   // Dynamic imports - required for background execution context
   const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
-  const { generateText, tool } = await import('ai')
+  const { generateText, tool, stepCountIs } = await import('ai')
   const { withDevTools } = await import('@/lib/ai/devtools')
   const {
     findRelevantContent,
@@ -217,95 +219,110 @@ export async function processSupportAgentV2(
   let sources: Array<{ title: string; content: string }> | undefined
 
   try {
-    // Build system prompt - inject RAG context if available
-    let systemPrompt = agent.system_prompt
-
-    if (hasKnowledgeBase) {
-      // =======================================================================
-      // WITH KNOWLEDGE BASE: Search pgvector for relevant context
-      // =======================================================================
-      console.log(`[support-agent] Searching knowledge base for: "${inputText.slice(0, 100)}..."`)
-
-      const ragStartTime = Date.now()
-
-      // Build embedding config from agent settings
-      const embeddingConfig = buildEmbeddingConfigFromAgent(agent, apiKey)
-
-      // Build rerank config if enabled
-      const rerankConfig = await buildRerankConfigFromAgent(agent)
-
-      // Search for relevant content
-      const relevantContent = await findRelevantContent({
-        agentId: agent.id,
-        query: inputText,
-        embeddingConfig,
-        rerankConfig,
-        topK: agent.rag_max_results || 5,
-        threshold: agent.rag_similarity_threshold || 0.5,
-      })
-
-      console.log(`[support-agent] RAG search completed in ${Date.now() - ragStartTime}ms`)
-      console.log(`[support-agent] Found ${relevantContent.length} relevant chunks`)
-
-      if (relevantContent.length > 0) {
-        // Inject context into system prompt
-        const contextText = relevantContent
-          .map((r, i) => `[Fonte ${i + 1}]: ${r.content}`)
-          .join('\n\n')
-
-        systemPrompt = `${agent.system_prompt}
-
----
-CONTEXTO DA BASE DE CONHECIMENTO (use estas informações para responder):
-${contextText}
----
-
-IMPORTANTE: Se a pergunta do usuário puder ser respondida usando o contexto acima, use-o. Se não encontrar a informação no contexto, responda com base no seu conhecimento geral, mas indique quando não tiver certeza.`
-
-        // Track sources for logging
-        sources = relevantContent.map((r, i) => ({
-          title: `Fonte ${i + 1}`,
-          content: r.content.slice(0, 200) + '...',
-        }))
-
-        console.log(`[support-agent] Injected ${relevantContent.length} sources into system prompt`)
-      } else {
-        console.log(`[support-agent] No relevant content found, using base system prompt`)
-      }
-    }
-
     // =======================================================================
-    // GENERATE RESPONSE: Always use messages[] with respond tool
+    // TOOL-BASED RAG: LLM decides when to search
     // =======================================================================
-    console.log(`[support-agent] Generating response with respond tool`)
 
+    // Use agent's system prompt as-is (model decides when to use tools)
+    const systemPrompt = agent.system_prompt
+
+    // Define respond tool (required for structured output)
     const respondTool = tool({
-      description: 'Envia uma resposta estruturada ao usuário.',
+      description: 'Envia uma resposta estruturada ao usuário. SEMPRE use esta ferramenta para responder.',
       inputSchema: supportResponseSchema,
       execute: async (params) => {
         response = {
           ...params,
           sources: sources || params.sources,
         }
-        return params
+        return { success: true, message: params.message }
       },
     })
 
+    // Knowledge base search tool - only created if agent has indexed content
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let searchKnowledgeBaseTool: any = undefined
+
+    if (hasKnowledgeBase) {
+      searchKnowledgeBaseTool = tool({
+        description: 'Busca informações na base de conhecimento do agente. Use para responder perguntas que precisam de dados específicos.',
+        inputSchema: z.object({
+          query: z.string().describe('A pergunta ou termos de busca para encontrar informações relevantes'),
+        }),
+        execute: async ({ query }) => {
+          console.log(`[support-agent] LLM requested knowledge search: "${query.slice(0, 100)}..."`)
+          const ragStartTime = Date.now()
+
+          // Build configs
+          const embeddingConfig = buildEmbeddingConfigFromAgent(agent, apiKey)
+          const rerankConfig = await buildRerankConfigFromAgent(agent)
+
+          // Search
+          const relevantContent = await findRelevantContent({
+            agentId: agent.id,
+            query,
+            embeddingConfig,
+            rerankConfig,
+            topK: agent.rag_max_results || 5,
+            threshold: agent.rag_similarity_threshold || 0.5,
+          })
+
+          console.log(`[support-agent] RAG search completed in ${Date.now() - ragStartTime}ms, found ${relevantContent.length} chunks`)
+
+          if (relevantContent.length === 0) {
+            return { found: false, message: 'Nenhuma informação relevante encontrada na base de conhecimento.' }
+          }
+
+          // Track sources for logging
+          sources = relevantContent.map((r, i) => ({
+            title: `Fonte ${i + 1}`,
+            content: r.content.slice(0, 200) + '...',
+          }))
+
+          // Return formatted content for LLM to use
+          const contextText = relevantContent
+            .map((r, i) => `[${i + 1}] ${r.content}`)
+            .join('\n\n')
+
+          return {
+            found: true,
+            content: contextText,
+            sourceCount: relevantContent.length,
+          }
+        },
+      })
+    }
+
+    // Build tools object
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tools: Record<string, any> = { respond: respondTool }
+    if (searchKnowledgeBaseTool) {
+      tools.searchKnowledgeBase = searchKnowledgeBaseTool
+    }
+
+    console.log(`[support-agent] Generating response with tools: ${Object.keys(tools).join(', ')}`)
+
+    // Generate with multi-step support (LLM can search, then respond)
     await generateText({
       model,
       system: systemPrompt,
       messages: aiMessages,
-      tools: { respond: respondTool },
-      toolChoice: 'required',
+      tools,
+      ...(searchKnowledgeBaseTool ? { stopWhen: stepCountIs(3) } : {}), // Allow: search → think → respond
       temperature: agent.temperature ?? DEFAULT_TEMPERATURE,
       maxOutputTokens: agent.max_tokens ?? DEFAULT_MAX_TOKENS,
     })
 
     if (!response) {
-      throw new Error('No response generated')
+      throw new Error('No response generated - LLM did not call respond tool')
     }
 
     console.log(`[support-agent] Response generated: "${response.message.slice(0, 100)}..."`)
+    if (sources) {
+      console.log(`[support-agent] Used ${sources.length} knowledge base sources`)
+    } else {
+      console.log(`[support-agent] No knowledge base search performed`)
+    }
 
   } catch (err) {
     error = err instanceof Error ? err.message : 'Unknown error'

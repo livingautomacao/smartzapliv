@@ -164,30 +164,34 @@ export default function InstallWizardPage() {
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
+          let event: StreamEvent;
           try {
-            const event: StreamEvent = JSON.parse(line.slice(6));
-
-            if (event.type === 'phase') {
-              if (event.title) setProvisioningTitle(event.title);
-              if (event.subtitle) setProvisioningSubtitle(event.subtitle);
-              if (typeof event.progress === 'number') setProvisioningProgress(event.progress);
-              setRetryInfo(null);
-            } else if (event.type === 'retry') {
-              setRetryInfo({
-                stepId: event.stepId || '',
-                count: event.retryCount || 0,
-                max: event.maxRetries || 3,
-              });
-            } else if (event.type === 'error') {
-              throw new Error(event.error || 'Erro desconhecido');
-            } else if (event.type === 'complete' && event.ok) {
-              setProvisioningProgress(100);
-              setPhase('success');
-              // NÃO limpar tokens aqui - será feito no clique do botão "Entrar na Matrix"
-              // Isso evita race condition se a página recarregar antes de mostrar o success
-            }
+            event = JSON.parse(line.slice(6));
           } catch (parseErr) {
             console.error('[wizard] Erro ao parsear evento:', parseErr);
+            continue;
+          }
+
+          // Processar evento parseado
+          if (event.type === 'phase') {
+            if (event.title) setProvisioningTitle(event.title);
+            if (event.subtitle) setProvisioningSubtitle(event.subtitle);
+            if (typeof event.progress === 'number') setProvisioningProgress(event.progress);
+            setRetryInfo(null);
+          } else if (event.type === 'retry') {
+            setRetryInfo({
+              stepId: event.stepId || '',
+              count: event.retryCount || 0,
+              max: event.maxRetries || 3,
+            });
+          } else if (event.type === 'error') {
+            // Re-lança para ser capturado pelo handler externo
+            throw new Error(event.error || 'Erro desconhecido');
+          } else if (event.type === 'complete' && event.ok) {
+            setProvisioningProgress(100);
+            setPhase('success');
+            // NÃO limpar tokens aqui - será feito no clique do botão "Entrar na Matrix"
+            // Isso evita race condition se a página recarregar antes de mostrar o success
           }
         }
       }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { runSchemaMigration, checkSchemaApplied } from '@/lib/installer/migrations';
-import { bootstrapInstance, verifySupabaseConnection } from '@/lib/installer/bootstrap';
+import { bootstrapInstance } from '@/lib/installer/bootstrap';
 import { triggerProjectRedeploy, upsertProjectEnvs, waitForVercelDeploymentReady } from '@/lib/installer/vercel';
 import {
   extractProjectRefFromSupabaseUrl,
@@ -444,16 +444,7 @@ export async function POST(req: Request) {
             });
 
             if (!bootstrap.ok) throw new Error(bootstrap.error || 'Falha ao configurar instância.');
-
-            // Verifica conectividade
-            const conn = await verifySupabaseConnection({
-              supabaseUrl: supabase.url,
-              anonKey: resolvedAnonKey,
-            });
-
-            if (!conn.ok) {
-              console.warn('[run-stream] Aviso de conectividade:', conn.error);
-            }
+            // Nota: O CRM não faz verificação de conectividade aqui - vai direto para o redeploy
           },
           sendEvent
         );
@@ -462,6 +453,7 @@ export async function POST(req: Request) {
       }
 
       // Step: redeploy
+      console.log('[run-stream] Iniciando passo: redeploy');
       await sendPhase('redeploy', 0);
 
       let vercelDeploymentId: string | null = null;
@@ -483,8 +475,10 @@ export async function POST(req: Request) {
       }
 
       await sendPhase('redeploy');
+      console.log('[run-stream] Redeploy disparado, deploymentId:', vercelDeploymentId);
 
       // Step: wait_vercel_deploy
+      console.log('[run-stream] Iniciando passo: wait_vercel_deploy');
       await sendPhase('wait_vercel_deploy', 0);
 
       if (!vercelDeploymentId) {
@@ -513,14 +507,17 @@ export async function POST(req: Request) {
       await sendPhase('wait_vercel_deploy');
 
       // Desabilita o installer após sucesso
+      console.log('[run-stream] Desabilitando installer (INSTALLER_ENABLED=false)...');
       await upsertProjectEnvs(
         vercel.token,
         vercel.projectId,
         [{ key: 'INSTALLER_ENABLED', value: 'false', targets: envTargets }],
         vercel.teamId || undefined
       );
+      console.log('[run-stream] INSTALLER_ENABLED definido como false');
 
       // Complete!
+      console.log('[run-stream] Instalação concluída com sucesso!');
       const completePhase = PHASES['complete'];
       await sendEvent({
         type: 'phase',
@@ -533,8 +530,16 @@ export async function POST(req: Request) {
 
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro durante a instalação.';
-      await sendEvent({ type: 'error', error: message });
+      const stack = err instanceof Error ? err.stack : undefined;
+      console.error('[run-stream] ERRO na instalação:', message);
+      if (stack) console.error('[run-stream] Stack:', stack);
+      try {
+        await sendEvent({ type: 'error', error: message });
+      } catch (sendErr) {
+        console.error('[run-stream] Falha ao enviar evento de erro (stream possivelmente fechada):', sendErr);
+      }
     } finally {
+      console.log('[run-stream] Finalizando stream...');
       await writer.close();
     }
   })();

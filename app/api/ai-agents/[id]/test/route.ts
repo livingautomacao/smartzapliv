@@ -1,9 +1,9 @@
 /**
- * T055: Test AI Agent endpoint (V2 - AI SDK Patterns)
+ * T055: Test AI Agent endpoint (V2 - Tool-based RAG)
  * Allows testing an agent with a sample message before activation
  *
  * Uses streamText + tools for structured output (AI SDK v6 pattern)
- * Supports RAG with pgvector for knowledge base search
+ * RAG: LLM decides when to search knowledge base (not eager search)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     // Import AI dependencies dynamically
     const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
-    const { streamText, tool } = await import('ai')
+    const { generateText, tool, stepCountIs } = await import('ai')
     const { withDevTools } = await import('@/lib/ai/devtools')
 
     // Get Gemini API key
@@ -150,108 +150,120 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     console.log(`[ai-agents/test] Using model: ${modelId}`)
 
-    // Use system prompt exactly as configured
-    const systemPrompt = agent.system_prompt
-
     // Generate response
     const startTime = Date.now()
 
-    // Capture structured response from tool
+    // Capture structured response and sources from tool execution
     let structuredResponse: TestResponse | undefined
-    let ragContext: string | null = null
     let ragSources: Array<{ title: string; content: string }> = []
+    let searchPerformed = false
 
-    console.log(`[ai-agents/test] hasKnowledgeBase: ${hasKnowledgeBase}`)
+    // =======================================================================
+    // TOOL-BASED RAG: LLM decides when to search
+    // =======================================================================
 
-    // If agent has knowledge base, search for relevant content
-    if (hasKnowledgeBase) {
-      try {
-        // Get embedding API key for the configured provider
-        const embeddingProvider = (agent.embedding_provider || 'google') as EmbeddingProvider
-        const config = EMBEDDING_API_KEY_MAP[embeddingProvider]
+    // Use agent's system prompt as-is (model decides when to use tools)
+    const systemPrompt = agent.system_prompt
 
-        const { data: embeddingKeySetting } = await supabase
-          .from('settings')
-          .select('value')
-          .eq('key', config.settingKey)
-          .maybeSingle()
-
-        const embeddingApiKey = embeddingKeySetting?.value || process.env[config.envVar]
-
-        if (embeddingApiKey) {
-          console.log(`[ai-agents/test] Searching knowledge base with ${embeddingProvider}`)
-
-          const embeddingConfig = buildEmbeddingConfigFromAgent(agent as AIAgent, embeddingApiKey)
-
-          const relevantContent = await findRelevantContent({
-            agentId: id,
-            query: message,
-            embeddingConfig,
-            topK: agent.rag_max_results || 5,
-            threshold: agent.rag_similarity_threshold || 0.5,
-          })
-
-          if (relevantContent.length > 0) {
-            console.log(`[ai-agents/test] Found ${relevantContent.length} relevant chunks`)
-
-            // Build context string
-            ragContext = relevantContent
-              .map((r, i) => `[${i + 1}] ${r.content}`)
-              .join('\n\n')
-
-            // Build sources for response
-            ragSources = relevantContent.map((r, i) => ({
-              title: `Trecho ${i + 1} (${(r.similarity * 100).toFixed(0)}% relevante)`,
-              content: r.content.slice(0, 200) + (r.content.length > 200 ? '...' : ''),
-            }))
-          } else {
-            console.log(`[ai-agents/test] No relevant content found above threshold`)
-          }
-        } else {
-          console.log(`[ai-agents/test] Embedding API key not configured for ${embeddingProvider}`)
-        }
-      } catch (ragError) {
-        console.error(`[ai-agents/test] RAG search error:`, ragError)
-        // Continue without RAG context
-      }
-    }
-
-    // Build final system prompt with RAG context
-    const finalSystemPrompt = ragContext
-      ? `${systemPrompt}\n\n---\nCONTEXTO DA BASE DE CONHECIMENTO:\n${ragContext}\n---\n\nUse as informações acima para responder à pergunta do usuário. Se a informação não estiver no contexto, diga que não tem essa informação disponível.`
-      : systemPrompt
-
-    console.log(`[ai-agents/test] Using ${ragContext ? 'RAG-enhanced' : 'standard'} prompt`)
-
-    // Define the respond tool
+    // Define respond tool (required for structured output)
     const respondTool = tool({
-      description: 'Envia uma resposta estruturada ao usuário.',
+      description: 'Envia uma resposta estruturada ao usuário. SEMPRE use esta ferramenta para responder.',
       inputSchema: testResponseSchema,
       execute: async (params) => {
         structuredResponse = {
           ...params,
           sources: ragSources.length > 0 ? ragSources : params.sources,
         }
-        return structuredResponse
+        return { success: true, message: params.message }
       },
     })
 
-    const result = streamText({
+    // Knowledge base search tool - only created if agent has indexed content and API key
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let searchKnowledgeBaseTool: any = undefined
+
+    if (hasKnowledgeBase) {
+      // Get embedding API key for the configured provider
+      const embeddingProvider = (agent.embedding_provider || 'google') as EmbeddingProvider
+      const config = EMBEDDING_API_KEY_MAP[embeddingProvider]
+
+      const { data: embeddingKeySetting } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', config.settingKey)
+        .maybeSingle()
+
+      const embeddingApiKey = embeddingKeySetting?.value || process.env[config.envVar]
+
+      if (embeddingApiKey) {
+        searchKnowledgeBaseTool = tool({
+          description: 'Busca informações na base de conhecimento do agente. Use para responder perguntas que precisam de dados específicos.',
+          inputSchema: z.object({
+            query: z.string().describe('A pergunta ou termos de busca para encontrar informações relevantes'),
+          }),
+          execute: async ({ query }) => {
+            console.log(`[ai-agents/test] LLM requested knowledge search: "${query.slice(0, 100)}..."`)
+            searchPerformed = true
+            const ragStartTime = Date.now()
+
+            const embeddingConfig = buildEmbeddingConfigFromAgent(agent as AIAgent, embeddingApiKey)
+
+            const relevantContent = await findRelevantContent({
+              agentId: id,
+              query,
+              embeddingConfig,
+              topK: agent.rag_max_results || 5,
+              threshold: agent.rag_similarity_threshold || 0.5,
+            })
+
+            console.log(`[ai-agents/test] RAG search completed in ${Date.now() - ragStartTime}ms, found ${relevantContent.length} chunks`)
+
+            if (relevantContent.length === 0) {
+              return { found: false, message: 'Nenhuma informação relevante encontrada na base de conhecimento.' }
+            }
+
+            // Track sources for response
+            ragSources = relevantContent.map((r, i) => ({
+              title: `Trecho ${i + 1} (${(r.similarity * 100).toFixed(0)}% relevante)`,
+              content: r.content.slice(0, 200) + (r.content.length > 200 ? '...' : ''),
+            }))
+
+            // Return formatted content for LLM to use
+            const contextText = relevantContent
+              .map((r, i) => `[${i + 1}] ${r.content}`)
+              .join('\n\n')
+
+            return {
+              found: true,
+              content: contextText,
+              sourceCount: relevantContent.length,
+            }
+          },
+        })
+      } else {
+        console.log(`[ai-agents/test] Embedding API key not configured for ${embeddingProvider}`)
+      }
+    }
+
+    // Build tools object
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tools: Record<string, any> = { respond: respondTool }
+    if (searchKnowledgeBaseTool) {
+      tools.searchKnowledgeBase = searchKnowledgeBaseTool
+    }
+
+    console.log(`[ai-agents/test] Generating response with tools: ${Object.keys(tools).join(', ')}`)
+
+    // Generate with multi-step support (LLM can search, then respond)
+    await generateText({
       model,
-      system: finalSystemPrompt,
-      prompt: message,
+      system: systemPrompt,
+      messages: [{ role: 'user' as const, content: message }],
       temperature: agent.temperature ?? 0.7,
       maxOutputTokens: agent.max_tokens ?? 1024,
-      tools: {
-        respond: respondTool,
-      },
-      toolChoice: 'required',
+      tools,
+      ...(searchKnowledgeBaseTool ? { stopWhen: stepCountIs(3) } : {}), // Allow: search → think → respond
     })
-
-    // Consume the stream completely to trigger tool execution
-    for await (const _part of result.fullStream) {
-      // Just consume - the tool execute function captures the response
-    }
 
     const latencyMs = Date.now() - startTime
 
@@ -260,7 +272,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       throw new Error('No structured response generated from AI')
     }
 
-    console.log(`[ai-agents/test] Response generated in ${latencyMs}ms. Used RAG: ${!!ragContext}`)
+    console.log(`[ai-agents/test] Response generated in ${latencyMs}ms. Search performed: ${searchPerformed}`)
 
     return NextResponse.json({
       response: structuredResponse.message,
@@ -269,6 +281,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       knowledge_files_used: indexedFilesCount ?? 0,
       rag_enabled: hasKnowledgeBase,
       rag_chunks_used: ragSources.length,
+      search_performed: searchPerformed, // New: indicates if LLM decided to search
       // Structured output fields
       sentiment: structuredResponse.sentiment,
       confidence: structuredResponse.confidence,
