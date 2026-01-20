@@ -11,6 +11,7 @@ import { generateText, tool } from 'ai'
 import { z } from 'zod'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createClient } from '@/lib/supabase-server'
+import { withDevTools } from '@/lib/ai/devtools'
 import type { AIAgent, InboxConversation, InboxMessage } from '@/types'
 
 // =============================================================================
@@ -166,7 +167,8 @@ export async function processSupportAgentV2(
 
   const google = createGoogleGenerativeAI({ apiKey })
   const modelId = agent.model || DEFAULT_MODEL_ID
-  const model = google(modelId)
+  const baseModel = google(modelId)
+  const model = await withDevTools(baseModel, { name: `agente:${agent.name}` })
 
   const hasKnowledgeBase = !!agent.file_search_store_id
 
@@ -181,6 +183,7 @@ export async function processSupportAgentV2(
       // WITH KNOWLEDGE BASE: Use file_search (returns plain text)
       // =======================================================================
       console.log(`[support-agent] Using File Search with store: ${agent.file_search_store_id}`)
+      console.log(`[support-agent] Calling Gemini API...`)
 
       const result = await generateText({
         model,
@@ -194,7 +197,10 @@ export async function processSupportAgentV2(
         },
         temperature: DEFAULT_TEMPERATURE,
         maxOutputTokens: DEFAULT_MAX_TOKENS,
+        abortSignal: AbortSignal.timeout(30000), // 30s timeout
       })
+
+      console.log(`[support-agent] Gemini API responded, text length: ${result.text?.length ?? 0}`)
 
       // Create structured response from plain text
       response = {

@@ -16,6 +16,8 @@ const STORAGE_KEYS = {
   VERCEL_PROJECT: 'smartzap_install_vercel_project',
   SUPABASE_PAT: 'smartzap_install_supabase_pat',
   SUPABASE_URL: 'smartzap_install_supabase_url',
+  SUPABASE_REF: 'smartzap_install_supabase_ref',
+  SUPABASE_DB_PASS: 'smartzap_install_supabase_db_pass',
   QSTASH_TOKEN: 'smartzap_install_qstash_token',
   REDIS_REST_URL: 'smartzap_install_redis_url',
   REDIS_REST_TOKEN: 'smartzap_install_redis_token',
@@ -35,6 +37,8 @@ interface CollectedData {
   vercelProject: { id: string; name: string; teamId?: string } | null;
   supabasePat: string;
   supabaseUrl: string;
+  supabaseRef: string;
+  supabaseDbPass: string;
   qstashToken: string;
   redisRestUrl: string;
   redisRestToken: string;
@@ -92,6 +96,8 @@ export default function InstallWizardPage() {
     const vercelProject = localStorage.getItem(STORAGE_KEYS.VERCEL_PROJECT);
     const supabasePat = localStorage.getItem(STORAGE_KEYS.SUPABASE_PAT);
     const supabaseUrl = localStorage.getItem(STORAGE_KEYS.SUPABASE_URL);
+    const supabaseRef = localStorage.getItem(STORAGE_KEYS.SUPABASE_REF);
+    const supabaseDbPass = localStorage.getItem(STORAGE_KEYS.SUPABASE_DB_PASS);
     const qstashToken = localStorage.getItem(STORAGE_KEYS.QSTASH_TOKEN);
     const redisUrl = localStorage.getItem(STORAGE_KEYS.REDIS_REST_URL);
     const redisToken = localStorage.getItem(STORAGE_KEYS.REDIS_REST_TOKEN);
@@ -99,10 +105,12 @@ export default function InstallWizardPage() {
     const passwordHash = localStorage.getItem(STORAGE_KEYS.USER_PASS_HASH);
 
     // Missing data → go back to start
+    // Note: supabaseDbPass is critical - we need it to connect as postgres user
     if (
       !vercelToken ||
       !vercelProject ||
       !supabasePat ||
+      !supabaseDbPass ||
       !qstashToken ||
       !redisUrl ||
       !redisToken ||
@@ -113,18 +121,10 @@ export default function InstallWizardPage() {
       return;
     }
 
-    // Supabase URL: se não tiver, gerar baseado no project
+    // Supabase URL: se não tiver, gerar baseado no ref
     let resolvedSupabaseUrl = supabaseUrl || '';
-    if (!resolvedSupabaseUrl) {
-      // Tenta extrair do project se for JSON
-      try {
-        const proj = JSON.parse(vercelProject);
-        // Se temos o ref do projeto, podemos gerar a URL
-        // Mas normalmente o usuário deveria ter fornecido
-        console.warn('[wizard] Supabase URL não encontrada no localStorage');
-      } catch {
-        // ignore
-      }
+    if (!resolvedSupabaseUrl && supabaseRef) {
+      resolvedSupabaseUrl = `https://${supabaseRef}.supabase.co`;
     }
 
     setData({
@@ -134,6 +134,8 @@ export default function InstallWizardPage() {
       vercelProject: vercelProject ? JSON.parse(vercelProject) : null,
       supabasePat,
       supabaseUrl: resolvedSupabaseUrl,
+      supabaseRef: supabaseRef || '',
+      supabaseDbPass: supabaseDbPass || '',
       qstashToken,
       redisRestUrl: redisUrl,
       redisRestToken: redisToken,
@@ -276,6 +278,8 @@ export default function InstallWizardPage() {
         supabase: {
           url: data.supabaseUrl,
           accessToken: data.supabasePat,
+          projectRef: data.supabaseRef,
+          dbPass: data.supabaseDbPass, // Senha do banco para conectar como postgres
         },
         upstash: {
           qstashToken: data.qstashToken,

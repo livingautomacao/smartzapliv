@@ -33,6 +33,7 @@ const RunSchema = z
       url: z.string().url(),
       accessToken: z.string().min(1),
       projectRef: z.string().optional(),
+      dbPass: z.string().min(1).optional(), // Senha do banco (criada junto com o projeto)
     }),
     upstash: z.object({
       qstashToken: z.string().min(1),
@@ -282,26 +283,45 @@ export async function POST(req: Request) {
 
       await sendPhase('resolve_keys', 0.5);
 
-      const db = await withRetry(
-        'resolve_db',
-        async () => {
-          const result = await resolveSupabaseDbUrl({
-            projectRef: resolvedProjectRef,
-            accessToken: supabase.accessToken,
-          });
-          if (!result.ok) throw new Error(result.error || 'Falha ao conectar com o banco de dados.');
-          return result;
-        },
-        sendEvent
-      );
-      resolvedDbUrl = db.dbUrl;
+      // Se dbPass foi fornecido, usa postgres user diretamente (tem todas permissões)
+      // Senão, tenta CLI login role (permissões limitadas)
+      if (supabase.dbPass) {
+        // Resolve o pooler host via API
+        const poolerResult = await resolveSupabaseDbUrl({
+          projectRef: resolvedProjectRef,
+          accessToken: supabase.accessToken,
+        });
 
-      // Log para debug - mostrar info da conexão (sem senha)
-      console.log('[run-stream] DB URL resolved:', {
-        host: db.host,
-        role: db.role,
-        ttlSeconds: db.ttlSeconds,
-      });
+        if (poolerResult.ok) {
+          // Usa postgres user com a senha fornecida
+          const poolerHost = poolerResult.host;
+          resolvedDbUrl = `postgresql://postgres.${resolvedProjectRef}:${encodeURIComponent(supabase.dbPass)}@${poolerHost}:6543/postgres?sslmode=require&pgbouncer=true`;
+          console.log('[run-stream] DB URL usando postgres user (dbPass fornecido):', { host: poolerHost });
+        } else {
+          throw new Error(poolerResult.error || 'Falha ao resolver host do banco.');
+        }
+      } else {
+        // Fallback: CLI login role (pode ter permissões limitadas)
+        const db = await withRetry(
+          'resolve_db',
+          async () => {
+            const result = await resolveSupabaseDbUrl({
+              projectRef: resolvedProjectRef,
+              accessToken: supabase.accessToken,
+            });
+            if (!result.ok) throw new Error(result.error || 'Falha ao conectar com o banco de dados.');
+            return result;
+          },
+          sendEvent
+        );
+        resolvedDbUrl = db.dbUrl;
+
+        console.log('[run-stream] DB URL via CLI login role:', {
+          host: db.host,
+          role: db.role,
+          ttlSeconds: db.ttlSeconds,
+        });
+      }
 
       await sendPhase('resolve_keys');
 

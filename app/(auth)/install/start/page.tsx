@@ -32,6 +32,7 @@ const STORAGE_KEYS = {
   SUPABASE_REF: 'smartzap_install_supabase_ref',
   SUPABASE_PUBLISHABLE_KEY: 'smartzap_install_supabase_publishable_key',
   SUPABASE_SECRET_KEY: 'smartzap_install_supabase_secret_key',
+  SUPABASE_DB_PASS: 'smartzap_install_supabase_db_pass',
 
   // QStash
   QSTASH_TOKEN: 'smartzap_install_qstash_token',
@@ -64,6 +65,7 @@ interface WizardState {
   supabaseRef: string;
   supabasePublishableKey: string;
   supabaseSecretKey: string;
+  supabaseDbPass: string;
 
   // QStash
   qstashToken: string;
@@ -115,6 +117,7 @@ export default function InstallStartPage() {
     supabaseRef: '',
     supabasePublishableKey: '',
     supabaseSecretKey: '',
+    supabaseDbPass: '',
     qstashToken: '',
     redisRestUrl: '',
     redisRestToken: '',
@@ -132,6 +135,7 @@ export default function InstallStartPage() {
     const supabaseRef = localStorage.getItem(STORAGE_KEYS.SUPABASE_REF);
     const supabasePublishableKey = localStorage.getItem(STORAGE_KEYS.SUPABASE_PUBLISHABLE_KEY);
     const supabaseSecretKey = localStorage.getItem(STORAGE_KEYS.SUPABASE_SECRET_KEY);
+    const supabaseDbPass = localStorage.getItem(STORAGE_KEYS.SUPABASE_DB_PASS);
     const qstashToken = localStorage.getItem(STORAGE_KEYS.QSTASH_TOKEN);
     const redisUrl = localStorage.getItem(STORAGE_KEYS.REDIS_REST_URL);
     const redisToken = localStorage.getItem(STORAGE_KEYS.REDIS_REST_TOKEN);
@@ -144,6 +148,7 @@ export default function InstallStartPage() {
       supabaseUrl &&
       supabasePublishableKey &&
       supabaseSecretKey &&
+      supabaseDbPass &&
       qstashToken &&
       redisUrl &&
       redisToken
@@ -167,6 +172,7 @@ export default function InstallStartPage() {
       supabaseRef: supabaseRef || '',
       supabasePublishableKey: supabasePublishableKey || '',
       supabaseSecretKey: supabaseSecretKey || '',
+      supabaseDbPass: supabaseDbPass || '',
       qstashToken: qstashToken || '',
       redisRestUrl: redisUrl || '',
       redisRestToken: redisToken || '',
@@ -248,12 +254,14 @@ export default function InstallStartPage() {
       projectRef: string;
       publishableKey: string;
       secretKey: string;
+      dbPass: string;
     }) => {
       localStorage.setItem(STORAGE_KEYS.SUPABASE_PAT, data.pat);
       localStorage.setItem(STORAGE_KEYS.SUPABASE_URL, data.projectUrl);
       localStorage.setItem(STORAGE_KEYS.SUPABASE_REF, data.projectRef);
       localStorage.setItem(STORAGE_KEYS.SUPABASE_PUBLISHABLE_KEY, data.publishableKey);
       localStorage.setItem(STORAGE_KEYS.SUPABASE_SECRET_KEY, data.secretKey);
+      localStorage.setItem(STORAGE_KEYS.SUPABASE_DB_PASS, data.dbPass);
 
       setState((prev) => ({
         ...prev,
@@ -262,6 +270,7 @@ export default function InstallStartPage() {
         supabaseRef: data.projectRef,
         supabasePublishableKey: data.publishableKey,
         supabaseSecretKey: data.secretKey,
+        supabaseDbPass: data.dbPass,
       }));
 
       goNext();

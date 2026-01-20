@@ -186,12 +186,17 @@ O File Search já injeta contexto automaticamente - não precisa de:
 
 ## Modelos Suportados
 
-Apenas estes modelos suportam File Search:
+Modelos que suportam File Search (Janeiro 2026):
 
-- `gemini-3-pro-preview`
-- `gemini-3-flash-preview`
-- `gemini-2.5-pro`
-- `gemini-2.5-flash`
+- `gemini-3-pro-preview` ✅
+- `gemini-3-flash-preview` ✅
+- `gemini-2.5-pro` ✅
+- `gemini-2.5-flash` ✅
+- `gemini-2.5-flash-lite` ✅
+
+**NÃO suportam File Search:**
+- `gemini-2.0-flash` ❌
+- `gemini-2.0-flash-lite` ❌
 
 ## Preços e Limites
 

@@ -129,7 +129,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const google = createGoogleGenerativeAI({ apiKey })
     const modelId = agent.model || DEFAULT_MODEL_ID
     const baseModel = google(modelId)
-    const model = await withDevTools(baseModel, { name: `agent-test:${agent.name}` })
+    const model = await withDevTools(baseModel, { name: `agente:${agent.name}` })
 
     console.log(`[ai-agents/test] Using model: ${modelId}`)
 

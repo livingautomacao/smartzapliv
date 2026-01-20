@@ -59,21 +59,23 @@ export const DEFAULT_MODEL_ID = 'gemini-3-flash-preview'
  * Available models for AI agents
  * Organized by generation (newest first)
  *
- * File Search API compatible models (per Google docs):
- * - gemini-3-pro-preview
- * - gemini-3-flash-preview
- * - gemini-2.5-pro
+ * File Search API compatible models (per Google docs - Jan 2026):
+ * - gemini-3-pro-preview ✅
+ * - gemini-3-flash-preview ✅
+ * - gemini-2.5-pro ✅
+ * - gemini-2.5-flash ✅
+ * - gemini-2.5-flash-lite ✅
  *
  * NOT compatible with File Search:
- * - gemini-2.5-flash
  * - gemini-2.0-flash
+ * - gemini-2.0-flash-lite
  */
 export const AI_AGENT_MODELS = [
-  // Gemini 3 - Latest generation (recommended for File Search)
+  // Gemini 3 - Latest generation
   {
     id: 'gemini-3-flash-preview',
     name: 'Gemini 3 Flash',
-    description: 'Mais recente, rápido e com melhor RAG (recomendado)',
+    description: 'Mais recente, rápido e inteligente (recomendado)',
     generation: 3,
     supportsFileSearch: true,
   },
@@ -86,18 +88,18 @@ export const AI_AGENT_MODELS = [
   },
   // Gemini 2.5 - Current stable generation
   {
+    id: 'gemini-2.5-flash',
+    name: 'Gemini 2.5 Flash',
+    description: 'Estável, rápido e eficiente',
+    generation: 2.5,
+    supportsFileSearch: true,
+  },
+  {
     id: 'gemini-2.5-pro',
     name: 'Gemini 2.5 Pro',
     description: 'Alta qualidade, raciocínio avançado',
     generation: 2.5,
     supportsFileSearch: true,
-  },
-  {
-    id: 'gemini-2.5-flash',
-    name: 'Gemini 2.5 Flash',
-    description: 'Rápido e eficiente (SEM suporte a File Search)',
-    generation: 2.5,
-    supportsFileSearch: false,
   },
   // Gemini 2.0 - Previous generation
   {

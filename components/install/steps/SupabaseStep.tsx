@@ -14,6 +14,7 @@ interface SupabaseStepProps {
     projectRef: string;
     publishableKey: string;
     secretKey: string;
+    dbPass: string; // Senha do banco para usar nas migrations
   }) => void;
 }
 
@@ -39,6 +40,7 @@ interface ProvisioningState {
   projectUrl: string;
   publishableKey: string;
   secretKey: string;
+  dbPass: string;
 }
 
 /**
@@ -220,6 +222,7 @@ export function SupabaseStep({ onComplete }: SupabaseStepProps) {
         projectUrl,
         publishableKey,
         secretKey,
+        dbPass, // Guardar a senha pra usar nas migrations
       });
       setPhase('success');
 
