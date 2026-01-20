@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { StepCard } from '../StepCard';
 import { ServiceIcon } from '../ServiceIcon';
@@ -30,11 +30,6 @@ export function QStashStep({ onComplete }: QStashStepProps) {
     // JWT format (3 parts) ou prefixo qstash_
     return trimmed.split('.').length === 3 || trimmed.startsWith('qstash_');
   };
-
-  const canSubmit = token.trim().length >= 30 && isValidToken(token);
-
-  // Ref para evitar submits duplicados
-  const hasSubmittedRef = useRef(false);
 
   const handleValidate = useCallback(async () => {
     if (!isValidToken(token)) {
@@ -66,23 +61,11 @@ export function QStashStep({ onComplete }: QStashStepProps) {
         setSuccess(true);
       } else {
         setError(err instanceof Error ? err.message : 'Erro ao validar');
-        hasSubmittedRef.current = false; // Permitir retry
       }
     } finally {
       setValidating(false);
     }
   }, [token]);
-
-  // Auto-submit quando token válido
-  useEffect(() => {
-    if (canSubmit && !validating && !success && !error && !hasSubmittedRef.current) {
-      const timer = setTimeout(() => {
-        hasSubmittedRef.current = true;
-        handleValidate();
-      }, 800);
-      return () => clearTimeout(timer);
-    }
-  }, [canSubmit, validating, success, error, handleValidate]);
 
   const handleSuccessComplete = () => {
     onComplete({ token: token.trim() });
@@ -131,8 +114,13 @@ export function QStashStep({ onComplete }: QStashStepProps) {
             }}
             placeholder="eyJVc2VySUQi... ou qstash_..."
             minLength={30}
+            autoSubmitLength={50}
+            onAutoSubmit={handleValidate}
             accentColor="orange"
             showCharCount={false}
+            validating={validating}
+            success={success}
+            error={error || undefined}
           />
         </div>
 
