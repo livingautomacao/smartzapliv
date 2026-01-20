@@ -1,43 +1,240 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { ExternalLink, ChevronDown, Loader2 } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import { ExternalLink, Loader2, CheckCircle2 } from 'lucide-react';
 import { StepCard } from '../StepCard';
 import { ServiceIcon } from '../ServiceIcon';
 import { TokenInput } from '../TokenInput';
 import { SuccessCheckmark } from '../SuccessCheckmark';
 
-interface SupabaseProject {
-  id: string;
-  name: string;
-  ref: string;
-  region: string;
-  status: string;
+interface SupabaseStepProps {
+  onComplete: (data: {
+    pat: string;
+    projectUrl: string;
+    projectRef: string;
+    publishableKey: string;
+    secretKey: string;
+  }) => void;
 }
 
-interface SupabaseStepProps {
-  onComplete: (data: { pat: string; projectUrl: string; projectRef: string }) => void;
+interface Organization {
+  id: string;
+  slug: string;
+  name: string;
+  plan: string;
+  hasSlot: boolean;
+}
+
+type Phase =
+  | 'token'           // Input do PAT
+  | 'listing_orgs'    // Listando organizações
+  | 'creating'        // Criando projeto
+  | 'waiting'         // Aguardando projeto ficar ativo
+  | 'resolving'       // Resolvendo chaves
+  | 'success'         // Concluído
+  | 'error';          // Erro
+
+interface ProvisioningState {
+  projectRef: string;
+  projectUrl: string;
+  publishableKey: string;
+  secretKey: string;
 }
 
 /**
- * Step 3: Coleta do Supabase Personal Access Token e seleção de projeto.
+ * Step 3: Coleta do Supabase Personal Access Token.
  *
- * Comportamento:
- * - Valida formato: deve começar com "sbp_"
- * - Mínimo 30 caracteres
- * - Após validação, lista projetos e pede seleção
- * - Salva URL do projeto selecionado
+ * Após validação do PAT, o sistema automaticamente:
+ * 1. Lista organizações do usuário
+ * 2. Escolhe a melhor (paga > free com slot)
+ * 3. Cria projeto "smartzap" (ou smartzapv2, v3...)
+ * 4. Aguarda projeto ficar ACTIVE (polling)
+ * 5. Resolve chaves (anon_key, service_role_key)
+ * 6. Avança para próximo step
  */
 export function SupabaseStep({ onComplete }: SupabaseStepProps) {
   const [pat, setPat] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>('token');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [provisioningState, setProvisioningState] = useState<ProvisioningState | null>(null);
 
-  // Estados de fase
-  const [phase, setPhase] = useState<'token' | 'loading' | 'projects' | 'success'>('token');
-  const [projects, setProjects] = useState<SupabaseProject[]>([]);
-  const [selectedProject, setSelectedProject] = useState<SupabaseProject | null>(null);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  // Ref para evitar execução dupla
+  const isProvisioningRef = useRef(false);
 
+  /**
+   * Gera senha forte para o banco de dados
+   */
+  const generateDbPassword = (): string => {
+    const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*_-+=';
+    const array = new Uint8Array(20);
+    crypto.getRandomValues(array);
+    return Array.from(array, (b) => charset[b % charset.length]).join('');
+  };
+
+  /**
+   * Fluxo completo de provisionamento
+   */
+  const runProvisioning = useCallback(async (accessToken: string) => {
+    if (isProvisioningRef.current) return;
+    isProvisioningRef.current = true;
+
+    try {
+      // ========== 1. LISTAR ORGANIZAÇÕES ==========
+      setPhase('listing_orgs');
+      setStatusMessage('Buscando suas organizações...');
+
+      const orgsRes = await fetch('/api/installer/supabase/organizations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken }),
+      });
+
+      if (!orgsRes.ok) {
+        const data = await orgsRes.json();
+        throw new Error(data.error || 'Erro ao listar organizações');
+      }
+
+      const { organizations } = await orgsRes.json() as { organizations: Organization[] };
+
+      if (!organizations.length) {
+        throw new Error('Nenhuma organização encontrada. Crie uma em supabase.com primeiro.');
+      }
+
+      // Escolher a melhor organização (já vem ordenada: paga > free com slot)
+      const targetOrg = organizations.find((o) => o.hasSlot);
+
+      if (!targetOrg) {
+        throw new Error(
+          'Todas as organizações free atingiram o limite de 2 projetos. ' +
+          'Pause um projeto existente ou faça upgrade para Pro.'
+        );
+      }
+
+      setStatusMessage(`Usando organização "${targetOrg.name}"...`);
+
+      // ========== 2. CRIAR PROJETO ==========
+      setPhase('creating');
+      setStatusMessage('Criando projeto SmartZap...');
+
+      const dbPass = generateDbPassword();
+      let projectName = 'smartzap';
+      let attempt = 0;
+      let createdProject: { id: string; url: string } | null = null;
+
+      while (attempt < 30 && !createdProject) {
+        const createRes = await fetch('/api/installer/supabase/create-project', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accessToken,
+            organizationId: targetOrg.id,
+            name: projectName,
+            dbPass,
+            region: 'us-east-1',
+          }),
+        });
+
+        if (createRes.ok) {
+          const { project } = await createRes.json();
+          createdProject = { id: project.id, url: project.url };
+        } else if (createRes.status === 409) {
+          // Nome já existe, tentar outro
+          attempt++;
+          projectName = `smartzapv${attempt + 1}`;
+          setStatusMessage(`Nome em uso, tentando "${projectName}"...`);
+        } else {
+          const data = await createRes.json();
+          throw new Error(data.error || 'Erro ao criar projeto');
+        }
+      }
+
+      if (!createdProject) {
+        throw new Error('Não foi possível criar projeto após 30 tentativas');
+      }
+
+      const projectRef = createdProject.id;
+      const projectUrl = createdProject.url;
+
+      setStatusMessage(`Projeto "${projectName}" criado!`);
+
+      // ========== 3. AGUARDAR ATIVO (POLLING) ==========
+      setPhase('waiting');
+      setStatusMessage('Aguardando projeto ficar ativo...');
+
+      const maxWait = 210000; // 3.5 minutos
+      const pollInterval = 4000; // 4 segundos
+      const startTime = Date.now();
+      let isReady = false;
+
+      while (Date.now() - startTime < maxWait && !isReady) {
+        const statusRes = await fetch('/api/installer/supabase/project-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accessToken, projectRef }),
+        });
+
+        if (statusRes.ok) {
+          const { isReady: ready, status } = await statusRes.json();
+          isReady = ready;
+
+          if (!isReady) {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            setStatusMessage(`Status: ${status} (${elapsed}s)...`);
+            await new Promise((r) => setTimeout(r, pollInterval));
+          }
+        } else {
+          await new Promise((r) => setTimeout(r, pollInterval));
+        }
+      }
+
+      if (!isReady) {
+        throw new Error('Timeout aguardando projeto ficar ativo. Tente novamente em alguns minutos.');
+      }
+
+      setStatusMessage('Projeto ativo!');
+
+      // ========== 4. RESOLVER CHAVES ==========
+      setPhase('resolving');
+      setStatusMessage('Obtendo chaves de API...');
+
+      // Pequeno delay para garantir que as chaves estão disponíveis
+      await new Promise((r) => setTimeout(r, 2000));
+
+      const resolveRes = await fetch('/api/installer/supabase/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken, projectRef }),
+      });
+
+      if (!resolveRes.ok) {
+        const data = await resolveRes.json();
+        throw new Error(data.error || 'Erro ao obter chaves');
+      }
+
+      const { publishableKey, secretKey } = await resolveRes.json();
+
+      // ========== 5. SUCESSO ==========
+      setProvisioningState({
+        projectRef,
+        projectUrl,
+        publishableKey,
+        secretKey,
+      });
+      setPhase('success');
+
+    } catch (err) {
+      console.error('[SupabaseStep] Erro no provisionamento:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+      setPhase('error');
+    } finally {
+      isProvisioningRef.current = false;
+    }
+  }, []);
+
+  /**
+   * Validação inicial do token e início do provisionamento
+   */
   const handleValidateToken = useCallback(async () => {
     const trimmed = pat.trim();
 
@@ -52,202 +249,128 @@ export function SupabaseStep({ onComplete }: SupabaseStepProps) {
     }
 
     setError(null);
-    setPhase('loading');
+    runProvisioning(trimmed);
+  }, [pat, runProvisioning]);
 
-    try {
-      const response = await fetch('/api/installer/supabase-projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken: trimmed }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || 'Erro ao validar token');
-        setPhase('token');
-        return;
-      }
-
-      if (!data.projects || data.projects.length === 0) {
-        setError('Nenhum projeto encontrado. Crie um projeto em supabase.com primeiro.');
-        setPhase('token');
-        return;
-      }
-
-      setProjects(data.projects);
-
-      // Se só tem um projeto, seleciona automaticamente
-      if (data.projects.length === 1) {
-        setSelectedProject(data.projects[0]);
-      }
-
-      setPhase('projects');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro de conexão');
-      setPhase('token');
-    }
-  }, [pat]);
-
-  const handleSelectProject = (project: SupabaseProject) => {
-    setSelectedProject(project);
-    setDropdownOpen(false);
-  };
-
-  const handleConfirmProject = () => {
-    if (!selectedProject) return;
-
-    setPhase('success');
-  };
-
+  /**
+   * Callback quando animação de sucesso termina
+   */
   const handleSuccessComplete = () => {
-    if (!selectedProject) return;
-
-    // Monta a URL do projeto Supabase
-    const projectUrl = `https://${selectedProject.ref}.supabase.co`;
-
-    onComplete({
-      pat: pat.trim(),
-      projectUrl,
-      projectRef: selectedProject.ref,
-    });
+    if (provisioningState) {
+      onComplete({
+        pat: pat.trim(),
+        ...provisioningState,
+      });
+    }
   };
 
-  // Status badges
-  const statusColor = (status: string) => {
-    if (status === 'ACTIVE_HEALTHY') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-    if (status === 'COMING_UP' || status === 'RESTARTING') return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
-    if (status === 'PAUSED') return 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30';
-    return 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30';
+  /**
+   * Retry após erro
+   */
+  const handleRetry = () => {
+    setError(null);
+    setPhase('token');
+    setStatusMessage('');
   };
 
-  const statusLabel = (status: string) => {
-    if (status === 'ACTIVE_HEALTHY') return 'Ativo';
-    if (status === 'COMING_UP') return 'Iniciando';
-    if (status === 'RESTARTING') return 'Reiniciando';
-    if (status === 'PAUSED') return 'Pausado';
-    return status;
-  };
+  // ========== RENDERS ==========
 
-  // Show success state
+  // Estado de sucesso
   if (phase === 'success') {
     return (
       <StepCard glowColor="emerald">
         <SuccessCheckmark
-          message="Projeto selecionado!"
+          message="Projeto Supabase criado!"
           onComplete={handleSuccessComplete}
         />
       </StepCard>
     );
   }
 
-  // Loading state
-  if (phase === 'loading') {
+  // Estado de erro
+  if (phase === 'error') {
+    return (
+      <StepCard glowColor="red">
+        <div className="flex flex-col items-center text-center py-4">
+          <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
+            <span className="text-3xl">❌</span>
+          </div>
+
+          <h2 className="text-xl font-semibold text-zinc-100">
+            Erro no provisionamento
+          </h2>
+          <p className="mt-2 text-sm text-red-400 max-w-sm">
+            {error}
+          </p>
+
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="mt-6 px-6 py-2.5 rounded-xl bg-zinc-700 text-zinc-100 hover:bg-zinc-600 transition-colors"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </StepCard>
+    );
+  }
+
+  // Estados de provisionamento (loading)
+  if (phase !== 'token') {
     return (
       <StepCard glowColor="emerald">
         <div className="flex flex-col items-center text-center py-8">
-          <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
-          <p className="mt-4 text-sm text-zinc-400">Buscando seus projetos...</p>
-        </div>
-      </StepCard>
-    );
-  }
-
-  // Project selection state
-  if (phase === 'projects') {
-    return (
-      <StepCard glowColor="emerald">
-        <div className="flex flex-col items-center text-center">
-          {/* Icon */}
-          <ServiceIcon service="supabase" size="lg" />
-
-          {/* Title */}
-          <h2 className="mt-4 text-xl font-semibold text-zinc-100">
-            Selecione o projeto
-          </h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            Escolha qual projeto Supabase usar
-          </p>
-
-          {/* Project selector */}
-          <div className="w-full mt-6 relative">
-            <button
-              type="button"
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="w-full px-4 py-3 rounded-xl bg-zinc-800/50 border border-zinc-700 text-left hover:border-emerald-500/50 transition-colors flex items-center justify-between"
-            >
-              {selectedProject ? (
-                <div className="flex items-center gap-3">
-                  <span className="text-zinc-100">{selectedProject.name}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs border ${statusColor(selectedProject.status)}`}>
-                    {statusLabel(selectedProject.status)}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-zinc-500">Selecione um projeto...</span>
-              )}
-              <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {/* Dropdown */}
-            {dropdownOpen && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-zinc-800 border border-zinc-700 rounded-xl overflow-hidden shadow-xl z-10 max-h-60 overflow-y-auto">
-                {projects.map((project) => (
-                  <button
-                    key={project.id}
-                    type="button"
-                    onClick={() => handleSelectProject(project)}
-                    className={`w-full px-4 py-3 text-left hover:bg-zinc-700/50 transition-colors flex items-center justify-between ${selectedProject?.id === project.id ? 'bg-emerald-500/10' : ''
-                      }`}
-                  >
-                    <div className="flex flex-col">
-                      <span className="text-zinc-100">{project.name}</span>
-                      <span className="text-xs text-zinc-500">{project.ref} • {project.region}</span>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-full text-xs border ${statusColor(project.status)}`}>
-                      {statusLabel(project.status)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+          {/* Spinner ou checkmarks */}
+          <div className="relative w-20 h-20 mb-6">
+            <Loader2 className="w-20 h-20 text-emerald-500 animate-spin" />
           </div>
 
-          {/* Warning for paused projects */}
-          {selectedProject?.status === 'PAUSED' && (
-            <p className="mt-3 text-xs text-yellow-500">
-              ⚠️ Este projeto está pausado. Ative-o no dashboard do Supabase antes de continuar.
+          {/* Status atual */}
+          <h2 className="text-lg font-medium text-zinc-100">
+            {phase === 'listing_orgs' && 'Analisando conta...'}
+            {phase === 'creating' && 'Criando projeto...'}
+            {phase === 'waiting' && 'Aguardando ativação...'}
+            {phase === 'resolving' && 'Finalizando...'}
+          </h2>
+
+          <p className="mt-2 text-sm text-zinc-400">
+            {statusMessage}
+          </p>
+
+          {/* Progress steps */}
+          <div className="mt-8 flex items-center gap-2">
+            {['listing_orgs', 'creating', 'waiting', 'resolving'].map((step, i) => {
+              const phases = ['listing_orgs', 'creating', 'waiting', 'resolving'];
+              const currentIdx = phases.indexOf(phase);
+              const stepIdx = i;
+
+              return (
+                <div
+                  key={step}
+                  className={`w-2.5 h-2.5 rounded-full transition-colors ${
+                    stepIdx < currentIdx
+                      ? 'bg-emerald-500'
+                      : stepIdx === currentIdx
+                      ? 'bg-emerald-500 animate-pulse'
+                      : 'bg-zinc-700'
+                  }`}
+                />
+              );
+            })}
+          </div>
+
+          {/* Indicador de tempo para waiting */}
+          {phase === 'waiting' && (
+            <p className="mt-4 text-xs text-zinc-500">
+              Isso pode levar até 3 minutos...
             </p>
           )}
-
-          {/* Confirm button */}
-          <button
-            type="button"
-            disabled={!selectedProject || selectedProject.status === 'PAUSED'}
-            onClick={handleConfirmProject}
-            className="w-full mt-6 px-4 py-3 rounded-xl bg-emerald-500 text-white font-medium hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Confirmar projeto
-          </button>
-
-          {/* Back link */}
-          <button
-            type="button"
-            onClick={() => {
-              setPhase('token');
-              setProjects([]);
-              setSelectedProject(null);
-            }}
-            className="mt-4 text-sm text-zinc-500 hover:text-emerald-400 transition-colors"
-          >
-            Usar outro token
-          </button>
         </div>
       </StepCard>
     );
   }
 
-  // Token input state (default)
+  // Estado inicial: input do token
   return (
     <StepCard glowColor="emerald">
       <div className="flex flex-col items-center text-center">
@@ -261,6 +384,16 @@ export function SupabaseStep({ onComplete }: SupabaseStepProps) {
         <p className="mt-1 text-sm text-zinc-400">
           Cole seu Personal Access Token do Supabase
         </p>
+
+        {/* Info box */}
+        <div className="w-full mt-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+          <div className="flex items-center gap-2 text-emerald-400">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <p className="text-xs text-left">
+              Criaremos automaticamente um projeto dedicado para o SmartZap
+            </p>
+          </div>
+        </div>
 
         {/* Input */}
         <div className="w-full mt-6">

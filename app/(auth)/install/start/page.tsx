@@ -29,6 +29,9 @@ const STORAGE_KEYS = {
   // Supabase
   SUPABASE_PAT: 'smartzap_install_supabase_pat',
   SUPABASE_URL: 'smartzap_install_supabase_url',
+  SUPABASE_REF: 'smartzap_install_supabase_ref',
+  SUPABASE_PUBLISHABLE_KEY: 'smartzap_install_supabase_publishable_key',
+  SUPABASE_SECRET_KEY: 'smartzap_install_supabase_secret_key',
 
   // QStash
   QSTASH_TOKEN: 'smartzap_install_qstash_token',
@@ -59,6 +62,9 @@ interface WizardState {
   // Supabase
   supabasePat: string;
   supabaseUrl: string;
+  supabaseRef: string;
+  supabasePublishableKey: string;
+  supabaseSecretKey: string;
 
   // QStash
   qstashToken: string;
@@ -108,6 +114,9 @@ export default function InstallStartPage() {
     vercelProject: null,
     supabasePat: '',
     supabaseUrl: '',
+    supabaseRef: '',
+    supabasePublishableKey: '',
+    supabaseSecretKey: '',
     qstashToken: '',
     qstashSigningKey: '',
     redisRestUrl: '',
@@ -123,6 +132,9 @@ export default function InstallStartPage() {
     const vercelProject = localStorage.getItem(STORAGE_KEYS.VERCEL_PROJECT);
     const supabasePat = localStorage.getItem(STORAGE_KEYS.SUPABASE_PAT);
     const supabaseUrl = localStorage.getItem(STORAGE_KEYS.SUPABASE_URL);
+    const supabaseRef = localStorage.getItem(STORAGE_KEYS.SUPABASE_REF);
+    const supabasePublishableKey = localStorage.getItem(STORAGE_KEYS.SUPABASE_PUBLISHABLE_KEY);
+    const supabaseSecretKey = localStorage.getItem(STORAGE_KEYS.SUPABASE_SECRET_KEY);
     const qstashToken = localStorage.getItem(STORAGE_KEYS.QSTASH_TOKEN);
     const qstashSigningKey = localStorage.getItem(STORAGE_KEYS.QSTASH_SIGNING_KEY);
     const redisUrl = localStorage.getItem(STORAGE_KEYS.REDIS_REST_URL);
@@ -134,6 +146,8 @@ export default function InstallStartPage() {
       vercelProject &&
       supabasePat &&
       supabaseUrl &&
+      supabasePublishableKey &&
+      supabaseSecretKey &&
       qstashToken &&
       qstashSigningKey &&
       redisUrl &&
@@ -155,6 +169,9 @@ export default function InstallStartPage() {
       vercelProject: vercelProject ? JSON.parse(vercelProject) : null,
       supabasePat: supabasePat || '',
       supabaseUrl: supabaseUrl || '',
+      supabaseRef: supabaseRef || '',
+      supabasePublishableKey: supabasePublishableKey || '',
+      supabaseSecretKey: supabaseSecretKey || '',
       qstashToken: qstashToken || '',
       qstashSigningKey: qstashSigningKey || '',
       redisRestUrl: redisUrl || '',
@@ -167,7 +184,7 @@ export default function InstallStartPage() {
       router.replace('/install/wizard');
     } else if (qstashToken && qstashSigningKey) {
       setStep(5); // Redis
-    } else if (supabasePat && supabaseUrl) {
+    } else if (supabasePat && supabaseUrl && supabasePublishableKey) {
       setStep(4); // QStash
     } else if (vercelToken && vercelProject) {
       setStep(3); // Supabase
@@ -231,14 +248,26 @@ export default function InstallStartPage() {
   );
 
   const handleSupabaseComplete = useCallback(
-    (data: { pat: string; projectUrl: string; projectRef: string }) => {
+    (data: {
+      pat: string;
+      projectUrl: string;
+      projectRef: string;
+      publishableKey: string;
+      secretKey: string;
+    }) => {
       localStorage.setItem(STORAGE_KEYS.SUPABASE_PAT, data.pat);
       localStorage.setItem(STORAGE_KEYS.SUPABASE_URL, data.projectUrl);
+      localStorage.setItem(STORAGE_KEYS.SUPABASE_REF, data.projectRef);
+      localStorage.setItem(STORAGE_KEYS.SUPABASE_PUBLISHABLE_KEY, data.publishableKey);
+      localStorage.setItem(STORAGE_KEYS.SUPABASE_SECRET_KEY, data.secretKey);
 
       setState((prev) => ({
         ...prev,
         supabasePat: data.pat,
         supabaseUrl: data.projectUrl,
+        supabaseRef: data.projectRef,
+        supabasePublishableKey: data.publishableKey,
+        supabaseSecretKey: data.secretKey,
       }));
 
       goNext();
