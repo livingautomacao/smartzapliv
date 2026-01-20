@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       if (projectDetails.ok) {
         const details = await projectDetails.json();
         return NextResponse.json({
-          valid: true,
+          success: true,
           project: {
             id: details.id,
             name: details.name,
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
 
     // Token válido mas sem projetos
     return NextResponse.json({
-      valid: true,
+      success: true,
       project: null,
       totalProjects: projects.length,
       message: 'Token válido, mas nenhum projeto encontrado',
