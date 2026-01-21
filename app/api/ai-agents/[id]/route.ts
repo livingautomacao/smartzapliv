@@ -40,6 +40,8 @@ const updateAgentSchema = z.object({
   // RAG: Search config
   rag_similarity_threshold: z.number().min(0).max(1).optional(),
   rag_max_results: z.number().int().min(1).max(20).optional(),
+  // Handoff config
+  handoff_enabled: z.boolean().optional(),
 })
 
 /**

@@ -26,10 +26,11 @@ const EMBEDDING_API_KEY_MAP: Record<EmbeddingProvider, { settingKey: string; env
 }
 
 // =============================================================================
-// Response Schema (same as chat-agent)
+// Response Schema (dynamic based on handoff_enabled - same as chat-agent)
 // =============================================================================
 
-const testResponseSchema = z.object({
+// Schema base (sem handoff)
+const baseResponseSchema = z.object({
   message: z.string().describe('A resposta para enviar ao usuário'),
   sentiment: z
     .enum(['positive', 'neutral', 'negative', 'frustrated'])
@@ -39,13 +40,6 @@ const testResponseSchema = z.object({
     .min(0)
     .max(1)
     .describe('Nível de confiança na resposta (0 = incerto, 1 = certo)'),
-  shouldHandoff: z
-    .boolean()
-    .describe('Se deve transferir para um atendente humano'),
-  handoffReason: z
-    .string()
-    .optional()
-    .describe('Motivo da transferência para humano'),
   sources: z
     .array(
       z.object({
@@ -57,7 +51,32 @@ const testResponseSchema = z.object({
     .describe('Fontes utilizadas para gerar a resposta'),
 })
 
-type TestResponse = z.infer<typeof testResponseSchema>
+// Campos de handoff (adicionados quando habilitado)
+const handoffFields = {
+  shouldHandoff: z
+    .boolean()
+    .describe('Se deve transferir para um atendente humano'),
+  handoffReason: z
+    .string()
+    .optional()
+    .describe('Motivo da transferência para humano'),
+}
+
+/**
+ * Gera o schema de resposta baseado na configuração do agente
+ */
+function getResponseSchema(handoffEnabled: boolean) {
+  if (handoffEnabled) {
+    return baseResponseSchema.extend(handoffFields)
+  }
+  return baseResponseSchema
+}
+
+// Tipo completo para compatibilidade
+type TestResponse = z.infer<typeof baseResponseSchema> & {
+  shouldHandoff?: boolean
+  handoffReason?: string
+}
 
 // Helper to get admin client with null check
 function getClient() {
@@ -163,13 +182,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // Use agent's system prompt as-is (model decides when to use tools)
     const systemPrompt = agent.system_prompt
 
-    // Define respond tool (required for structured output)
+    // Define respond tool with dynamic schema based on handoff_enabled
+    const handoffEnabled = agent.handoff_enabled ?? true
+    const responseSchema = getResponseSchema(handoffEnabled)
+
+    console.log(`[ai-agents/test] Handoff enabled: ${handoffEnabled}`)
+
     const respondTool = tool({
       description: 'Envia uma resposta estruturada ao usuário. SEMPRE use esta ferramenta para responder.',
-      inputSchema: testResponseSchema,
+      inputSchema: responseSchema,
       execute: async (params) => {
         structuredResponse = {
           ...params,
+          // Garante que campos de handoff existam (mesmo que undefined) para compatibilidade
+          shouldHandoff: 'shouldHandoff' in params ? params.shouldHandoff : undefined,
+          handoffReason: 'handoffReason' in params ? params.handoffReason : undefined,
           sources: ragSources.length > 0 ? ragSources : params.sources,
         }
         return { success: true, message: params.message }
@@ -283,8 +310,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       // Structured output fields
       sentiment: structuredResponse.sentiment,
       confidence: structuredResponse.confidence,
-      shouldHandoff: structuredResponse.shouldHandoff,
-      handoffReason: structuredResponse.handoffReason,
+      // Handoff fields (only present when handoff_enabled=true)
+      handoff_enabled: handoffEnabled,
+      should_handoff: structuredResponse.shouldHandoff,
+      handoff_reason: structuredResponse.handoffReason,
       sources: structuredResponse.sources,
     })
   } catch (error) {

@@ -73,6 +73,10 @@ function normalizePrompts(input?: Partial<AiPromptsConfig> | null): AiPromptsCon
     utilityGenerationTemplate: next.utilityGenerationTemplate || DEFAULT_AI_PROMPTS.utilityGenerationTemplate,
     utilityJudgeTemplate: next.utilityJudgeTemplate || DEFAULT_AI_PROMPTS.utilityJudgeTemplate,
     flowFormTemplate: next.flowFormTemplate || DEFAULT_AI_PROMPTS.flowFormTemplate,
+    // Estratégias de geração de templates
+    strategyMarketing: next.strategyMarketing || DEFAULT_AI_PROMPTS.strategyMarketing,
+    strategyUtility: next.strategyUtility || DEFAULT_AI_PROMPTS.strategyUtility,
+    strategyBypass: next.strategyBypass || DEFAULT_AI_PROMPTS.strategyBypass,
   }
 }
 

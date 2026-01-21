@@ -82,6 +82,7 @@ export function AIAgentForm({
   const [debounceMs, setDebounceMs] = useState(5000)
   const [isActive, setIsActive] = useState(true)
   const [isDefault, setIsDefault] = useState(false)
+  const [handoffEnabled, setHandoffEnabled] = useState(true)
 
   // RAG: Embedding config
   const [embeddingProvider, setEmbeddingProvider] = useState<EmbeddingProvider>(DEFAULT_EMBEDDING_CONFIG.provider)
@@ -102,7 +103,7 @@ export function AIAgentForm({
   const [ragConfigOpen, setRagConfigOpen] = useState(false)
 
   // Available embedding providers (fetched from API)
-  interface ProviderAvailability {
+  interface EmbeddingProviderAvailability {
     id: EmbeddingProvider
     name: string
     available: boolean
@@ -114,31 +115,64 @@ export function AIAgentForm({
       pricePerMillion: number
     }>
   }
-  const [availableProviders, setAvailableProviders] = useState<ProviderAvailability[]>([])
-  const [providersLoading, setProvidersLoading] = useState(false)
+  const [availableEmbeddingProviders, setAvailableEmbeddingProviders] = useState<EmbeddingProviderAvailability[]>([])
+  const [embeddingProvidersLoading, setEmbeddingProvidersLoading] = useState(false)
+
+  // Available LLM providers (fetched from API)
+  interface LLMProviderAvailability {
+    id: AIProvider
+    name: string
+    icon: string
+    available: boolean
+    reason: string | null
+    models: Array<{
+      id: string
+      name: string
+      description?: string
+    }>
+  }
+  const [availableLLMProviders, setAvailableLLMProviders] = useState<LLMProviderAvailability[]>([])
+  const [llmProvidersLoading, setLLMProvidersLoading] = useState(false)
 
   // Fetch available embedding providers
-  const fetchAvailableProviders = useCallback(async () => {
-    setProvidersLoading(true)
+  const fetchAvailableEmbeddingProviders = useCallback(async () => {
+    setEmbeddingProvidersLoading(true)
     try {
       const res = await fetch('/api/ai-agents/embedding-providers')
       if (res.ok) {
         const data = await res.json()
-        setAvailableProviders(data.providers || [])
+        setAvailableEmbeddingProviders(data.providers || [])
       }
     } catch (error) {
       console.error('Failed to fetch embedding providers:', error)
     } finally {
-      setProvidersLoading(false)
+      setEmbeddingProvidersLoading(false)
+    }
+  }, [])
+
+  // Fetch available LLM providers
+  const fetchAvailableLLMProviders = useCallback(async () => {
+    setLLMProvidersLoading(true)
+    try {
+      const res = await fetch('/api/ai-agents/llm-providers')
+      if (res.ok) {
+        const data = await res.json()
+        setAvailableLLMProviders(data.providers || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch LLM providers:', error)
+    } finally {
+      setLLMProvidersLoading(false)
     }
   }, [])
 
   // Fetch providers when sheet opens
   useEffect(() => {
     if (open) {
-      fetchAvailableProviders()
+      fetchAvailableEmbeddingProviders()
+      fetchAvailableLLMProviders()
     }
-  }, [open, fetchAvailableProviders])
+  }, [open, fetchAvailableEmbeddingProviders, fetchAvailableLLMProviders])
 
   // Reset form when agent changes
   useEffect(() => {
@@ -151,6 +185,7 @@ export function AIAgentForm({
       setDebounceMs(agent.debounce_ms)
       setIsActive(agent.is_active)
       setIsDefault(agent.is_default)
+      setHandoffEnabled(agent.handoff_enabled ?? true)
       // RAG config
       setEmbeddingProvider(agent.embedding_provider || DEFAULT_EMBEDDING_CONFIG.provider)
       setEmbeddingModel(agent.embedding_model || DEFAULT_EMBEDDING_CONFIG.model)
@@ -172,6 +207,7 @@ export function AIAgentForm({
       setDebounceMs(5000)
       setIsActive(true)
       setIsDefault(false)
+      setHandoffEnabled(true)
       // RAG config defaults
       setEmbeddingProvider(DEFAULT_EMBEDDING_CONFIG.provider)
       setEmbeddingModel(DEFAULT_EMBEDDING_CONFIG.model)
@@ -198,6 +234,7 @@ export function AIAgentForm({
       debounce_ms: debounceMs,
       is_active: isActive,
       is_default: isDefault,
+      handoff_enabled: handoffEnabled,
       // RAG config
       embedding_provider: embeddingProvider,
       embedding_model: embeddingModel,
@@ -302,35 +339,47 @@ export function AIAgentForm({
               {/* Model */}
               <div className="space-y-2">
                 <Label htmlFor="model">Modelo IA</Label>
-                <Select value={model} onValueChange={setModel}>
+                <Select value={model} onValueChange={setModel} disabled={llmProvidersLoading}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Selecione um modelo" />
+                    <SelectValue placeholder={llmProvidersLoading ? "Carregando..." : "Selecione um modelo"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {AI_PROVIDERS.map((provider) => (
-                      <SelectGroup key={provider.id}>
-                        <SelectLabel className="flex items-center gap-2 text-xs font-semibold text-zinc-400">
-                          <span>{provider.icon}</span>
-                          <span>{provider.name}</span>
-                        </SelectLabel>
-                        {provider.models.map((m, index) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            <div className="flex items-center gap-2">
-                              <span>{m.name}</span>
-                              {index === 0 && provider.id === 'google' && (
-                                <span className="rounded bg-primary-500/20 px-1.5 py-0.5 text-[10px] font-medium text-primary-400">
-                                  Recomendado
-                                </span>
-                              )}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
+                    {(availableLLMProviders.length > 0 ? availableLLMProviders : AI_PROVIDERS.map(p => ({ ...p, available: true }))).map((provider) => {
+                      // Só mostra providers com API key configurada
+                      if (!provider.available) return null
+
+                      return (
+                        <SelectGroup key={provider.id}>
+                          <SelectLabel className="flex items-center gap-2 text-xs font-semibold text-zinc-400">
+                            <span>{provider.icon}</span>
+                            <span>{provider.name}</span>
+                          </SelectLabel>
+                          {provider.models.map((m, index) => (
+                            <SelectItem key={m.id} value={m.id}>
+                              <div className="flex items-center gap-2">
+                                <span>{m.name}</span>
+                                {index === 0 && provider.id === 'google' && (
+                                  <span className="rounded bg-primary-500/20 px-1.5 py-0.5 text-[10px] font-medium text-primary-400">
+                                    Recomendado
+                                  </span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      )
+                    })}
                   </SelectContent>
                 </Select>
                 {selectedModel && (
                   <p className="text-xs text-[var(--ds-text-muted)]">{selectedModel.description}</p>
+                )}
+                {/* Warning if no providers available */}
+                {availableLLMProviders.length > 0 && availableLLMProviders.every(p => !p.available) && (
+                  <div className="flex items-center gap-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-400">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    <span>Nenhum provider configurado. Configure uma API key em Configurações → IA.</span>
+                  </div>
                 )}
               </div>
             </div>
@@ -458,13 +507,13 @@ export function AIAgentForm({
                   <Select
                     value={embeddingProvider}
                     onValueChange={(v) => handleEmbeddingProviderChange(v as EmbeddingProvider)}
-                    disabled={providersLoading}
+                    disabled={embeddingProvidersLoading}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={providersLoading ? "Carregando..." : "Selecione um provider"} />
+                      <SelectValue placeholder={embeddingProvidersLoading ? "Carregando..." : "Selecione um provider"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {(availableProviders.length > 0 ? availableProviders : EMBEDDING_PROVIDERS).map((p) => {
+                      {(availableEmbeddingProviders.length > 0 ? availableEmbeddingProviders : EMBEDDING_PROVIDERS).map((p) => {
                         const isAvailable = 'available' in p ? p.available : true
                         return (
                           <SelectItem
@@ -488,7 +537,7 @@ export function AIAgentForm({
                     </SelectContent>
                   </Select>
                   {/* Warning if selected provider is not available */}
-                  {availableProviders.length > 0 && !availableProviders.find(p => p.id === embeddingProvider)?.available && (
+                  {availableEmbeddingProviders.length > 0 && !availableEmbeddingProviders.find(p => p.id === embeddingProvider)?.available && (
                     <div className="flex items-center gap-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-400">
                       <AlertCircle className="h-4 w-4 flex-shrink-0" />
                       <span>API key do {EMBEDDING_PROVIDERS.find(p => p.id === embeddingProvider)?.name} não configurada. Configure em Configurações → IA.</span>
@@ -711,6 +760,24 @@ export function AIAgentForm({
                   id="isDefault"
                   checked={isDefault}
                   onCheckedChange={setIsDefault}
+                />
+              </div>
+
+              <div className="flex items-center justify-between border-t border-[var(--ds-border-default)] pt-3">
+                <div>
+                  <Label htmlFor="handoffEnabled" className="text-sm">
+                    Transferência para humano
+                  </Label>
+                  <p className="text-xs text-[var(--ds-text-muted)]">
+                    {handoffEnabled
+                      ? 'Agente pode sugerir transferir para atendente'
+                      : 'Agente nunca sugere transferência'}
+                  </p>
+                </div>
+                <Switch
+                  id="handoffEnabled"
+                  checked={handoffEnabled}
+                  onCheckedChange={setHandoffEnabled}
                 />
               </div>
             </div>

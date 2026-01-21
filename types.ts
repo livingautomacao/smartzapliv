@@ -607,6 +607,8 @@ export interface AIAgent {
   // RAG: Search config
   rag_similarity_threshold: number | null;
   rag_max_results: number | null;
+  // Handoff config
+  handoff_enabled: boolean;
   created_at: string;
   updated_at: string;
 }

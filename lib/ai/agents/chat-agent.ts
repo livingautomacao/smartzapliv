@@ -124,7 +124,8 @@ export interface SupportAgentResult {
 // Response Schema
 // =============================================================================
 
-const supportResponseSchema = z.object({
+// Schema base (sem handoff)
+const baseResponseSchema = z.object({
   message: z.string().describe('A resposta para enviar ao usuário'),
   sentiment: z
     .enum(['positive', 'neutral', 'negative', 'frustrated'])
@@ -134,17 +135,6 @@ const supportResponseSchema = z.object({
     .min(0)
     .max(1)
     .describe('Nível de confiança na resposta (0 = incerto, 1 = certo)'),
-  shouldHandoff: z
-    .boolean()
-    .describe('Se deve transferir para um atendente humano'),
-  handoffReason: z
-    .string()
-    .optional()
-    .describe('Motivo da transferência para humano'),
-  handoffSummary: z
-    .string()
-    .optional()
-    .describe('Resumo da conversa para o atendente'),
   sources: z
     .array(
       z.object({
@@ -156,13 +146,41 @@ const supportResponseSchema = z.object({
     .describe('Fontes utilizadas para gerar a resposta'),
 })
 
+// Campos de handoff (adicionados quando habilitado)
+const handoffFields = {
+  shouldHandoff: z
+    .boolean()
+    .describe('Se deve transferir para um atendente humano'),
+  handoffReason: z
+    .string()
+    .optional()
+    .describe('Motivo da transferência para humano'),
+  handoffSummary: z
+    .string()
+    .optional()
+    .describe('Resumo da conversa para o atendente'),
+}
+
+// Schema completo (com handoff) - mantido para compatibilidade
+const supportResponseSchema = baseResponseSchema.extend(handoffFields)
+
+/**
+ * Gera o schema de resposta baseado na configuração do agente
+ */
+function getResponseSchema(handoffEnabled: boolean) {
+  if (handoffEnabled) {
+    return baseResponseSchema.extend(handoffFields)
+  }
+  return baseResponseSchema
+}
+
 export type SupportResponse = z.infer<typeof supportResponseSchema>
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-const DEFAULT_MODEL_ID = 'gemini-2.5-flash'
+const DEFAULT_MODEL_ID = 'gemini-3-flash-preview'
 const DEFAULT_TEMPERATURE = 0.7
 const DEFAULT_MAX_TOKENS = 2048
 
@@ -301,12 +319,20 @@ export async function processChatAgent(
     const systemPrompt = agent.system_prompt
 
     // Define respond tool (required for structured output)
+    // Schema é dinâmico baseado em handoff_enabled
+    const handoffEnabled = agent.handoff_enabled ?? true // default true para compatibilidade
+    const responseSchema = getResponseSchema(handoffEnabled)
+
+    console.log(`[chat-agent] Handoff enabled: ${handoffEnabled}`)
+
     const respondTool = tool({
       description: 'Envia uma resposta estruturada ao usuário. SEMPRE use esta ferramenta para responder.',
-      inputSchema: supportResponseSchema,
+      inputSchema: responseSchema,
       execute: async (params) => {
         response = {
           ...params,
+          // Garante que campos de handoff existam (mesmo que undefined) para compatibilidade
+          shouldHandoff: 'shouldHandoff' in params ? params.shouldHandoff : false,
           sources: sources || params.sources,
         }
         return { success: true, message: params.message }

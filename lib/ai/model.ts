@@ -33,7 +33,7 @@ export type CallOptions = z.infer<typeof callOptionsSchema>
 /**
  * Default model for AI agents
  */
-export const DEFAULT_MODEL_ID = 'gemini-2.5-flash'
+export const DEFAULT_MODEL_ID = 'gemini-3-flash-preview'
 
 // Re-export from providers.ts - single source of truth for models
 export { AI_PROVIDERS, getProvider, getModel, getDefaultModel } from './providers'

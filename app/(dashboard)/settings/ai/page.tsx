@@ -9,11 +9,15 @@ import {
   FileText,
   FormInput,
   Info,
+  Megaphone,
   MessageSquareText,
   ShieldCheck,
   Sparkles,
   Trash2,
   Wand2,
+  Wrench,
+  Drama,
+  Target,
 } from 'lucide-react'
 import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/components/ui/page'
 import { AI_PROVIDERS, type AIProvider } from '@/lib/ai/providers'
@@ -90,7 +94,7 @@ const OCR_GEMINI_MODELS = [
 
 const DEFAULT_OCR_CONFIG: OCRConfig = {
   provider: 'gemini',
-  geminiModel: 'gemini-2.5-flash',
+  geminiModel: 'gemini-3-flash-preview',
   mistralStatus: {
     isConfigured: false,
     source: 'none',
@@ -149,6 +153,236 @@ const PROMPTS: PromptItem[] = [
     Icon: FormInput,
   },
 ]
+
+// Estratégias de geração de templates (seção separada)
+type StrategyItem = {
+  id: string
+  valueKey: keyof AiPromptsConfig
+  title: string
+  subtitle: string
+  description: string
+  metaCategory: 'MARKETING' | 'UTILITY'
+  features: string[]
+  warning?: string
+  tone: 'amber' | 'emerald' | 'violet'
+  Icon: typeof Megaphone
+}
+
+const TEMPLATE_STRATEGIES: StrategyItem[] = [
+  {
+    id: 'strategy-marketing',
+    valueKey: 'strategyMarketing',
+    title: 'Marketing',
+    subtitle: 'Vendas',
+    description: 'Foco total em conversão. Usa gatilhos mentais, urgência e copy persuasiva.',
+    metaCategory: 'MARKETING',
+    features: ['Alta Conversão', 'Emojis & Formatação', 'Framework AIDA'],
+    warning: 'Custo mais alto por mensagem',
+    tone: 'amber',
+    Icon: Megaphone,
+  },
+  {
+    id: 'strategy-utility',
+    valueKey: 'strategyUtility',
+    title: 'Utilidade',
+    subtitle: 'Padrão',
+    description: 'Foco em avisos e notificações. Linguagem formal, seca e direta.',
+    metaCategory: 'UTILITY',
+    features: ['Avisos Transacionais', 'Sem Bloqueios', 'Tom Formal'],
+    warning: 'Proibido termos de venda',
+    tone: 'emerald',
+    Icon: Wrench,
+  },
+  {
+    id: 'strategy-bypass',
+    valueKey: 'strategyBypass',
+    title: 'Camuflado',
+    subtitle: 'Bypass',
+    description: 'Tenta passar copy de vendas como Utility usando substituição de variáveis.',
+    metaCategory: 'UTILITY',
+    features: ['Custo Baixo', 'Anti-Spam AI', 'Variáveis Dinâmicas'],
+    warning: 'Pode ser rejeitado se abusar',
+    tone: 'violet',
+    Icon: Drama,
+  },
+]
+
+// Componente de card de estratégia com design distintivo
+function StrategyCard({
+  strategy,
+  value,
+  onChange,
+}: {
+  strategy: StrategyItem
+  value: string
+  onChange: (next: string) => void
+}) {
+  const Icon = strategy.Icon
+  const [isOpen, setIsOpen] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success('Prompt copiado')
+    } catch (error) {
+      console.error('Failed to copy prompt:', error)
+      toast.error('Não foi possível copiar o prompt')
+    }
+  }
+
+  const toneStyles = {
+    amber: {
+      border: 'border-amber-500/30',
+      bg: 'bg-amber-500/5',
+      icon: 'text-amber-400 border-amber-500/30 bg-amber-500/10',
+      badge: 'border-amber-500/40 bg-amber-500/15 text-amber-300',
+      glow: 'shadow-amber-500/5',
+    },
+    emerald: {
+      border: 'border-emerald-500/30',
+      bg: 'bg-emerald-500/5',
+      icon: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
+      badge: 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300',
+      glow: 'shadow-emerald-500/5',
+    },
+    violet: {
+      border: 'border-violet-500/30',
+      bg: 'bg-violet-500/5',
+      icon: 'text-violet-400 border-violet-500/30 bg-violet-500/10',
+      badge: 'border-violet-500/40 bg-violet-500/15 text-violet-300',
+      glow: 'shadow-violet-500/5',
+    },
+  }
+
+  const styles = toneStyles[strategy.tone]
+
+  return (
+    <div
+      className={`group relative overflow-hidden rounded-2xl border transition-all duration-300 ${styles.border} ${styles.bg} hover:shadow-lg ${styles.glow}`}
+    >
+      {/* Gradient accent line */}
+      <div
+        className={`absolute inset-x-0 top-0 h-px bg-gradient-to-r ${
+          strategy.tone === 'amber'
+            ? 'from-transparent via-amber-400/50 to-transparent'
+            : strategy.tone === 'emerald'
+              ? 'from-transparent via-emerald-400/50 to-transparent'
+              : 'from-transparent via-violet-400/50 to-transparent'
+        }`}
+      />
+
+      <div className="p-5">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4">
+            {/* Icon container */}
+            <div
+              className={`flex size-12 shrink-0 items-center justify-center rounded-xl border ${styles.icon}`}
+            >
+              <Icon className="size-5" />
+            </div>
+
+            {/* Title & Meta */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h4 className="text-base font-semibold text-[var(--ds-text-primary)]">
+                  {strategy.title}
+                </h4>
+                <span className="rounded-md bg-[var(--ds-bg-hover)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--ds-text-muted)]">
+                  {strategy.subtitle}
+                </span>
+              </div>
+              <p className="text-sm text-[var(--ds-text-secondary)]">{strategy.description}</p>
+
+              {/* Meta category badge */}
+              <div className="flex items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${styles.badge}`}
+                >
+                  <Target className="size-3" />
+                  {strategy.metaCategory}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Edit button */}
+          <button
+            type="button"
+            onClick={() => setIsOpen((prev) => !prev)}
+            className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-medium transition-all ${
+              isOpen
+                ? `${styles.border} ${styles.bg} text-[var(--ds-text-primary)]`
+                : 'border-[var(--ds-border-default)] bg-[var(--ds-bg-hover)] text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-surface)]'
+            }`}
+            aria-expanded={isOpen}
+          >
+            {isOpen ? 'Fechar' : 'Editar Prompt'}
+            {isOpen ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+          </button>
+        </div>
+
+        {/* Features */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {strategy.features.map((feature) => (
+            <span
+              key={feature}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-surface)] px-2.5 py-1 text-xs text-[var(--ds-text-secondary)]"
+            >
+              <span className={`size-1.5 rounded-full ${
+                strategy.tone === 'amber' ? 'bg-amber-400' : strategy.tone === 'emerald' ? 'bg-emerald-400' : 'bg-violet-400'
+              }`} />
+              {feature}
+            </span>
+          ))}
+        </div>
+
+        {/* Warning */}
+        {strategy.warning && (
+          <div className="mt-3 flex items-center gap-2 text-xs text-[var(--ds-text-muted)]">
+            <Info className="size-3.5" />
+            <span>{strategy.warning}</span>
+          </div>
+        )}
+
+        {/* Expandable editor */}
+        {isOpen && (
+          <div className="mt-5 space-y-4 border-t border-[var(--ds-border-subtle)] pt-5">
+            <textarea
+              className={`min-h-[200px] w-full rounded-xl border bg-[var(--ds-bg-surface)] px-4 py-3 font-mono text-sm text-[var(--ds-text-primary)] outline-none transition focus:ring-2 ${
+                strategy.tone === 'amber'
+                  ? 'border-amber-500/20 focus:border-amber-500/40 focus:ring-amber-500/10'
+                  : strategy.tone === 'emerald'
+                    ? 'border-emerald-500/20 focus:border-emerald-500/40 focus:ring-emerald-500/10'
+                    : 'border-violet-500/20 focus:border-violet-500/40 focus:ring-violet-500/10'
+              }`}
+              rows={12}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="Digite o prompt da estratégia..."
+            />
+
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-[var(--ds-text-muted)]">
+                <span className="font-medium text-[var(--ds-text-secondary)]">Arquivo original:</span>{' '}
+                <code className="rounded bg-[var(--ds-bg-hover)] px-1.5 py-0.5">
+                  /lib/ai/prompts/{strategy.id.replace('strategy-', '')}.ts
+                </code>
+              </div>
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-hover)] px-3 py-1.5 text-xs font-medium text-[var(--ds-text-primary)] transition hover:bg-[var(--ds-bg-surface)]"
+                onClick={handleCopy}
+              >
+                Copiar prompt
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const getProviderConfig = (providerId: AIProvider) =>
   AI_PROVIDERS.find((provider) => provider.id === providerId)
@@ -363,6 +597,9 @@ export default function AICenterPage() {
   const [mistralKeyDraft, setMistralKeyDraft] = useState('')
   const [isSavingOcr, setIsSavingOcr] = useState(false)
   const [showMistralKeyInput, setShowMistralKeyInput] = useState(false)
+
+  // Collapsible sections
+  const [isStrategiesOpen, setIsStrategiesOpen] = useState(false)
 
   const orderedProviders = useMemo(
     () => normalizeProviderOrder(fallback.order),
@@ -1002,6 +1239,92 @@ export default function AICenterPage() {
                 em tabelas complexas.
               </span>
             </div>
+          </div>
+        </section>
+
+        {/* Template Strategies Section - Collapsible */}
+        <section className="relative overflow-hidden rounded-2xl border border-[var(--ds-border-default)] bg-gradient-to-br from-[var(--ds-bg-elevated)] to-[var(--ds-bg-surface)]">
+          {/* Background pattern */}
+          <div className="pointer-events-none absolute inset-0 opacity-[0.02]">
+            <div className="absolute inset-0" style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+            }} />
+          </div>
+
+          <div className="relative p-6">
+            {/* Header - Clickable */}
+            <button
+              type="button"
+              onClick={() => setIsStrategiesOpen((prev) => !prev)}
+              className="flex w-full flex-wrap items-center justify-between gap-4 text-left"
+              aria-expanded={isStrategiesOpen}
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500/20 via-emerald-500/20 to-violet-500/20">
+                    <Target className="size-4 text-[var(--ds-text-primary)]" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-[var(--ds-text-primary)]">
+                    Estratégias de Template
+                  </h3>
+                </div>
+                <p className="text-sm text-[var(--ds-text-secondary)]">
+                  Configure os prompts de cada personalidade para geração de templates Meta.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                    MARKETING
+                  </span>
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                    UTILITY
+                  </span>
+                  <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-300">
+                    BYPASS
+                  </span>
+                </div>
+                <div className={`flex size-8 items-center justify-center rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-bg-hover)] text-[var(--ds-text-secondary)] transition-transform duration-200 ${isStrategiesOpen ? 'rotate-180' : ''}`}>
+                  <ChevronDown className="size-4" />
+                </div>
+              </div>
+            </button>
+
+            {/* Collapsible Content */}
+            {isStrategiesOpen && (
+              <>
+                {/* Strategy Cards */}
+                <div className="mt-6 space-y-4">
+                  {TEMPLATE_STRATEGIES.map((strategy) => (
+                    <StrategyCard
+                      key={strategy.id}
+                      strategy={strategy}
+                      value={prompts[strategy.valueKey] ?? ''}
+                      onChange={(nextValue) =>
+                        setPrompts((current) => ({
+                          ...current,
+                          [strategy.valueKey]: nextValue,
+                        }))
+                      }
+                    />
+                  ))}
+                </div>
+
+                {/* Info note */}
+                <div className="mt-5 flex items-start gap-2 rounded-xl border border-[var(--ds-border-subtle)] bg-[var(--ds-bg-tertiary)]/50 p-4 text-xs text-[var(--ds-text-secondary)]">
+                  <Info className="mt-0.5 size-4 shrink-0 text-[var(--ds-text-muted)]" />
+                  <div className="space-y-1">
+                    <p>
+                      Estas estratégias são usadas no fluxo de criação de templates em{' '}
+                      <code className="rounded bg-[var(--ds-bg-hover)] px-1.5 py-0.5 text-[var(--ds-text-primary)]">
+                        /templates/new
+                      </code>.
+                      O usuário escolhe a personalidade e o prompt correspondente guia a geração.
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </section>
 
