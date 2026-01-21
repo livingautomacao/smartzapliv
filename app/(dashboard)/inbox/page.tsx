@@ -8,12 +8,18 @@
  */
 
 import { Suspense } from 'react'
+import dynamic from 'next/dynamic'
 import { InboxView } from '@/components/features/inbox'
-import { AIAgentForm } from '@/components/features/settings/ai-agents'
 import { useInbox } from '@/hooks/useInbox'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { PageLayoutScope } from '@/components/providers/PageLayoutProvider'
 import { Loader2, MessageSquare, RefreshCw } from 'lucide-react'
+
+// Dynamic import para modal pesado (~885 linhas) - só carrega quando abre
+const AIAgentForm = dynamic(
+  () => import('@/components/features/settings/ai-agents').then(m => m.AIAgentForm),
+  { ssr: false }
+)
 
 /** Full-bleed layout for inbox - no padding, fills available space */
 const INBOX_LAYOUT = {

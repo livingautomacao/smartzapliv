@@ -46,9 +46,12 @@ export const useDashboardController = (initialData?: { stats: any, recentCampaig
     isLoading: statsQuery.isLoading && !statsQuery.data,
     isFetching: statsQuery.isFetching || recentCampaignsQuery.isFetching,
     isError: statsQuery.isError || recentCampaignsQuery.isError,
-    refetch: () => {
-      statsQuery.refetch();
-      recentCampaignsQuery.refetch();
+    refetch: async () => {
+      // Refetch em paralelo para evitar waterfall
+      await Promise.all([
+        statsQuery.refetch(),
+        recentCampaignsQuery.refetch(),
+      ]);
     }
   };
 };

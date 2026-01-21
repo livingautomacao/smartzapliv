@@ -317,15 +317,25 @@ export async function POST(request: NextRequest) {
           wabaCandidates = Array.from(targets)
 
           // Heurística segura: procura um candidato que contenha este phone em /{waba}/phone_numbers
-          for (const candidate of wabaCandidates) {
-            const link = await wabaHasPhoneNumber({
-              wabaId: candidate,
-              phoneNumberId,
-              accessToken,
-            })
-            if (link.ok && link.matches === true) {
-              wabaId = candidate
-              break
+          // Executa todas as verificações em paralelo para evitar waterfall
+          if (wabaCandidates.length > 0) {
+            const linkResults = await Promise.all(
+              wabaCandidates.map(async (candidate) => ({
+                candidate,
+                result: await wabaHasPhoneNumber({
+                  wabaId: candidate,
+                  phoneNumberId,
+                  accessToken,
+                }),
+              }))
+            )
+
+            // Encontra o primeiro candidato válido
+            const validLink = linkResults.find(
+              ({ result }) => result.ok && result.matches === true
+            )
+            if (validLink) {
+              wabaId = validLink.candidate
             }
           }
 

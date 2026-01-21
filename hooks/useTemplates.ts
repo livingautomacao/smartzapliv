@@ -18,6 +18,7 @@ import {
   removeFromSelection,
   type DraftSendState,
 } from '@/lib/business/template';
+import { CACHE } from '@/lib/constants';
 
 // Informações das categorias de utility para o UI
 export const UTILITY_CATEGORIES: Record<UtilityCategory, { name: string; icon: string }> = {
@@ -86,12 +87,12 @@ export const useTemplatesController = () => {
   const [universalPhone, setUniversalPhone] = useState<string>('');
 
   // --- Queries ---
-  // Templates raramente mudam - cache infinito, sincroniza só no botão
+  // Templates raramente mudam - cache de 10 min, mas pode sincronizar manualmente
   const templatesQuery = useQuery({
     queryKey: ['templates'],
     queryFn: templateService.getAll,
-    staleTime: Infinity,  // Nunca considera "velho" automaticamente
-    gcTime: Infinity,     // Nunca remove do cache
+    staleTime: CACHE.templates,  // 10 minutos - permite updates automáticos
+    gcTime: CACHE.templates * 2, // 20 minutos antes de remover do cache
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,

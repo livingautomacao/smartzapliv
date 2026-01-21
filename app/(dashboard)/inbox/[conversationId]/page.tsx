@@ -6,10 +6,16 @@
  */
 
 import { Suspense, use } from 'react'
+import dynamic from 'next/dynamic'
 import { InboxView } from '@/components/features/inbox'
-import { AIAgentForm } from '@/components/features/settings/ai-agents'
 import { useInbox } from '@/hooks/useInbox'
 import { Loader2 } from 'lucide-react'
+
+// Dynamic import para modal pesado (~885 linhas) - só carrega quando abre
+const AIAgentForm = dynamic(
+  () => import('@/components/features/settings/ai-agents').then(m => m.AIAgentForm),
+  { ssr: false }
+)
 
 interface InboxConversationPageProps {
   params: Promise<{ conversationId: string }>

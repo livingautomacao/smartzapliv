@@ -254,24 +254,32 @@ export const CampaignCard = React.memo(
       </div>
     )
   },
-  // Custom comparison
-  (prev, next) => (
-    prev.campaign.id === next.campaign.id &&
-    prev.campaign.status === next.campaign.status &&
-    prev.campaign.name === next.campaign.name &&
-    prev.campaign.recipients === next.campaign.recipients &&
-    prev.campaign.delivered === next.campaign.delivered &&
-    prev.campaign.read === next.campaign.read &&
-    prev.campaign.folderId === next.campaign.folderId &&
-    prev.campaign.folder?.name === next.campaign.folder?.name &&
-    prev.campaign.folder?.color === next.campaign.folder?.color &&
-    JSON.stringify(prev.campaign.tags?.map(t => t.id)) === JSON.stringify(next.campaign.tags?.map(t => t.id)) &&
-    prev.deletingId === next.deletingId &&
-    prev.duplicatingId === next.duplicatingId &&
-    prev.isPausing === next.isPausing &&
-    prev.isResuming === next.isResuming &&
-    prev.isStarting === next.isStarting
-  )
+  // Custom comparison - retorna boolean explicitamente
+  (prev, next): boolean => {
+    // Comparação shallow de tags (evita JSON.stringify)
+    const prevTags = prev.campaign.tags || []
+    const nextTags = next.campaign.tags || []
+    const tagsEqual = prevTags.length === nextTags.length &&
+      prevTags.every((t, i) => t.id === nextTags[i]?.id)
+
+    return (
+      prev.campaign.id === next.campaign.id &&
+      prev.campaign.status === next.campaign.status &&
+      prev.campaign.name === next.campaign.name &&
+      prev.campaign.recipients === next.campaign.recipients &&
+      prev.campaign.delivered === next.campaign.delivered &&
+      prev.campaign.read === next.campaign.read &&
+      prev.campaign.folderId === next.campaign.folderId &&
+      prev.campaign.folder?.name === next.campaign.folder?.name &&
+      prev.campaign.folder?.color === next.campaign.folder?.color &&
+      tagsEqual &&
+      prev.deletingId === next.deletingId &&
+      prev.duplicatingId === next.duplicatingId &&
+      prev.isPausing === next.isPausing &&
+      prev.isResuming === next.isResuming &&
+      prev.isStarting === next.isStarting
+    )
+  }
 )
 
 // =============================================================================
@@ -296,7 +304,7 @@ interface CampaignCardListProps {
   duplicatingId?: string
 }
 
-export const CampaignCardList: React.FC<CampaignCardListProps> = ({
+export const CampaignCardList = React.memo(function CampaignCardList({
   campaigns,
   isLoading,
   searchTerm,
@@ -312,7 +320,7 @@ export const CampaignCardList: React.FC<CampaignCardListProps> = ({
   isStarting,
   deletingId,
   duplicatingId,
-}) => {
+}: CampaignCardListProps) {
   if (isLoading) {
     return (
       <div className="py-12 text-center text-gray-500">
@@ -358,4 +366,4 @@ export const CampaignCardList: React.FC<CampaignCardListProps> = ({
       ))}
     </div>
   )
-}
+})

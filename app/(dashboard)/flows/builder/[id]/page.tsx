@@ -2,6 +2,7 @@
 
 import React from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ExternalLink, Loader2, Save, UploadCloud, Wand2, LayoutTemplate, PenSquare, Check } from 'lucide-react'
 import { toast } from 'sonner'
@@ -10,9 +11,26 @@ import { Page, PageActions, PageDescription, PageHeader, PageTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
-import { UnifiedFlowEditor } from '@/components/features/flows/builder/UnifiedFlowEditor'
-import { AdvancedFlowPanel } from '@/components/features/flows/builder/dynamic-flow/AdvancedFlowPanel'
 import { MetaFlowPreview } from '@/components/ui/MetaFlowPreview'
+
+// Dynamic imports para componentes pesados (~1700+ linhas cada)
+const UnifiedFlowEditor = dynamic(
+  () => import('@/components/features/flows/builder/UnifiedFlowEditor').then(m => m.UnifiedFlowEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center p-8 text-gray-400">
+        <Loader2 className="w-5 h-5 animate-spin mr-2" />
+        Carregando editor...
+      </div>
+    ),
+  }
+)
+
+const AdvancedFlowPanel = dynamic(
+  () => import('@/components/features/flows/builder/dynamic-flow/AdvancedFlowPanel').then(m => m.AdvancedFlowPanel),
+  { ssr: false }
+)
 import { useFlowEditorController } from '@/hooks/useFlowEditor'
 import { Textarea } from '@/components/ui/textarea'
 import { FLOW_TEMPLATES } from '@/lib/flow-templates'

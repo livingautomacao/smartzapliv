@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Trash2, UploadCloud, Download, FileText, Plus } from 'lucide-react';
 import { Contact, ContactStatus, CustomFieldDefinition } from '../../../types';
 import { CustomFieldsSheet } from './CustomFieldsSheet';
@@ -169,7 +169,7 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
   // Export state and handler
   const [isExporting, setIsExporting] = useState(false);
 
-  const handleExport = async () => {
+  const handleExport = useCallback(async () => {
     if (selectedIds.size === 0) return;
 
     setIsExporting(true);
@@ -222,7 +222,7 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
     } finally {
       setIsExporting(false);
     }
-  };
+  }, [contacts, selectedIds]);
 
   return (
     <Page className="flex flex-col h-full min-h-0">
