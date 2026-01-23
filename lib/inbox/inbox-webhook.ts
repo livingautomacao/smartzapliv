@@ -200,9 +200,6 @@ async function triggerAIProcessing(
   }
 }
 
-// NOTE: processAIResponse foi movido para lib/inbox/inbox-ai-workflow.ts
-// O workflow agora gerencia todo o processamento de IA de forma durável.
-
 /**
  * Handle AI handoff to human
  * Switches conversation mode and creates internal note
@@ -318,9 +315,6 @@ async function findContactId(phone: string): Promise<string | null> {
 
   return data?.id || null
 }
-
-// NOTE: isAIAgentsGloballyEnabled e getAIAgentForConversation foram movidos para
-// lib/inbox/inbox-ai-workflow.ts como parte do processamento durável.
 
 /**
  * Map WhatsApp message types to inbox message types
