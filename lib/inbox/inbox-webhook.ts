@@ -209,10 +209,23 @@ async function triggerAIProcessing(
   console.log(`🔥 [TRIGGER] Dispatching to ${aiRespondUrl}`)
 
   try {
+    // Headers para bypass de Vercel Deployment Protection
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+
+    // Se tiver bypass secret configurado, adiciona o header
+    // Isso permite que QStash passe pelo Deployment Protection da Vercel
+    const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+    if (bypassSecret) {
+      headers['x-vercel-protection-bypass'] = bypassSecret
+    }
+
     await qstash.publishJSON({
       url: aiRespondUrl,
       body: { conversationId },
       retries: 2,
+      headers,
     })
 
     console.log(`✅ [TRIGGER] AI processing dispatched for ${conversationId}`)
