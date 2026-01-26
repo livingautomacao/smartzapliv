@@ -183,6 +183,9 @@ async function getLanguageModel(
 
     // Gateway requer OIDC token (disponível em Vercel ou via `vercel dev`)
     const oidcToken = process.env.VERCEL_OIDC_TOKEN;
+    if (gatewayConfig.enabled) {
+        console.log(`[AI Service] VERCEL_OIDC_TOKEN ${oidcToken ? 'present' : 'missing'}`);
+    }
     const canUseGateway = gatewayConfig.enabled && oidcToken;
 
     if (gatewayConfig.enabled && !oidcToken) {
