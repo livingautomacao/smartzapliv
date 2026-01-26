@@ -531,6 +531,41 @@ export async function processChatAgent(
       }
     }
 
+    // Reaction tool - allows the agent to react to user messages with emojis
+    // Only available if we have the user's message ID
+    if (lastUserMessage?.whatsapp_message_id) {
+      const { sendReaction } = await import('@/lib/whatsapp-send')
+
+      const reactToMessageTool = tool({
+        description: 'Reage à mensagem do usuário com um emoji. A reação aparece grudada na mensagem dele como feedback visual instantâneo.',
+        inputSchema: z.object({
+          emoji: z.string().describe('O emoji para reagir à mensagem do usuário'),
+        }),
+        execute: async ({ emoji }) => {
+          console.log(`[chat-agent] 😀 LLM requested reaction: ${emoji} on message ${lastUserMessage.whatsapp_message_id}`)
+
+          const result = await sendReaction({
+            to: conversation.phone,
+            messageId: lastUserMessage.whatsapp_message_id!,
+            emoji,
+          })
+
+          if (result.success) {
+            console.log(`[chat-agent] 😀 Reaction sent successfully`)
+            return { reacted: true, emoji }
+          }
+
+          console.log(`[chat-agent] 😀 Reaction failed: ${result.error}`)
+          return { reacted: false, error: result.error }
+        },
+      })
+
+      tools.reactToMessage = reactToMessageTool
+      console.log(`[chat-agent] 😀 Reaction tool added to tools list`)
+    } else {
+      console.log(`[chat-agent] ⚠️ Reaction tool not available: no whatsapp_message_id on last user message`)
+    }
+
     // Determina se precisa de multi-step (mais de uma tool além de respond)
     const hasMultipleTools = Object.keys(tools).length > 1
     console.log(`[chat-agent] Generating response with tools: ${Object.keys(tools).join(', ')}, multiStep: ${hasMultipleTools}`)
